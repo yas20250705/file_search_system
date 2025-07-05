@@ -37119,3 +37119,4 @@ myenv/Lib/site-packages/git_filter_repo-2.47.0.dist-info/REQUESTED
 myenv/Lib/site-packages/git_filter_repo-2.47.0.dist-info/top_level.txt
 myenv/Lib/site-packages/git_filter_repo-2.47.0.dist-info/WHEEL
 myenv/Scripts/git-filter-repo.exe
+app.log
