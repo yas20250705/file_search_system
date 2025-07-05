@@ -1,0 +1,64 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local File Search</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto px-4 py-8">
+        <div class="max-w-3xl mx-auto">
+            <!-- ロゴと検索バー -->
+            <div class="text-center mb-12">
+                <h1 class="text-5xl font-bold text-blue-600 mb-4">Local Search</h1>
+                <a href="/settings" class="text-blue-500 hover:underline mb-4 block">設定</a>
+                <form action="/search" method="get" class="flex">
+                    <input 
+                        type="text" 
+                        name="q" 
+                        class="w-full px-4 py-2 border border-gray-300 rounded-l-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="ファイル名または内容を検索..." 
+                        value="{{ query or '' }}"
+                    >
+                    <button 
+                        type="submit" 
+                        class="bg-blue-600 text-white px-6 py-2 rounded-r-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                        検索
+                    </button>
+                </form>
+            </div>
+
+            <!-- 検索結果 -->
+            {% if results %}
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h2 class="text-xl font-semibold mb-4">検索結果 ({{ results|length }}件)</h2>
+                    <ul>
+                        {% for result in results %}
+                            <li class="mb-6 border-b pb-4">
+                                <h3 class="text-lg font-medium text-blue-700 hover:underline">
+                                    <a href="/open?path={{ result.path|urlencode }}" target="_blank">{{ result.path }}</a>
+                                </h3>
+                                <p class="text-gray-600 mt-1 text-sm">
+                                    {% for snippet in result.snippets %}
+                                        ... {{ snippet.text | safe }} ...<br>
+                                    {% endfor %}
+                                </p>
+                                
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% elif query %}
+                <div class="text-center bg-white p-6 rounded-lg shadow-md">
+                    <p>"{{ query }}" に一致する結果は見つかりませんでした。</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+</body>
+</html>

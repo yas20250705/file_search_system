@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>設定 - Local File Search</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto px-4 py-8">
+        <div class="max-w-3xl mx-auto bg-white p-6 rounded-lg shadow-md">
+            <h1 class="text-3xl font-bold text-blue-600 mb-6">設定</h1>
+
+            {% if message %}
+                <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative mb-4" role="alert">
+                    <span class="block sm:inline">{{ message }}</span>
+                </div>
+            {% endif %}
+
+            <form action="/settings" method="post" class="space-y-4">
+                <div>
+                    <label for="target_directory_select" class="block text-sm font-medium text-gray-700">検索対象ディレクトリ (履歴から選択):</label>
+                    <select 
+                        id="target_directory_select" 
+                        name="target_directory" 
+                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        onchange="if(this.value) document.getElementById('target_directory_new').value = this.value;"
+                    >
+                        <option value="">-- 選択してください --</option>
+                        {% for path in directory_history %}
+                            <option value="{{ path }}" {% if path == target_directory %}selected{% endif %}>{{ path }}</option>
+                        {% endfor %}
+                    </select>
+                    <p class="mt-1 text-sm text-gray-500">または新しいパスを入力:</p>
+                    <div class="flex items-center space-x-2">
+                        <input 
+                            type="text" 
+                            id="target_directory_new" 
+                            name="target_directory" 
+                            value="{{ target_directory or '' }}" 
+                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            required
+                        >
+                        <button type="button" onclick="alert('エクスプローラーで目的のフォルダを開き、アドレスバーをクリックしてパスをコピーし、ここに貼り付けてください。')" class="mt-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2">
+                            パスの取得方法
+                        </button>
+                    </div>
+                    <p class="mt-1 text-sm text-gray-500">例: C:\Users\YourUser\Documents</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">許可するファイル拡張子:</label>
+                    <div class="grid grid-cols-3 gap-2">
+                        {% for ext in common_extensions %}
+                            <label class="inline-flex items-center">
+                                <input type="checkbox" name="allowed_extensions" value="{{ ext }}" class="form-checkbox h-5 w-5 text-blue-600" {% if ext in allowed_extensions %}checked{% endif %}>
+                                <span class="ml-2 text-gray-700">{{ ext }}</span>
+                            </label>
+                        {% endfor %}
+                    </div>
+                    <p class="mt-1 text-sm text-gray-500">検索対象としたいファイルの拡張子を選択してください。</p>
+                </div>
+
+                <button 
+                    type="submit" 
+                    class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                >
+                    設定を保存
+                </button>
+            </form>
+
+            <div class="mt-8 pt-6 border-t border-gray-200">
+                <h2 class="text-xl font-bold text-blue-600 mb-4">インデックスの再作成</h2>
+                <p class="text-gray-700 mb-4">設定を変更した場合や、新しいファイルを追加した場合は、インデックスを再作成してください。</p>
+                <a 
+                    href="/index_now" 
+                    class="inline-block px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                    id="startIndexingBtn"
+                >
+                    今すぐインデックスを作成
+                </a>
+                <a 
+                    href="/stop_indexing" 
+                    class="inline-block px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 ml-2 hidden"
+                    id="stopIndexingBtn"
+                >
+                    インデックス作成を中止
+                </a>
+
+                <div id="indexingStatus" class="mt-4 p-4 bg-gray-50 rounded-md hidden">
+                    <p class="font-semibold">インデックス作成状況:</p>
+                    <p id="statusText" class="text-lg font-bold"></p>
+                    <div class="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 mt-2">
+                        <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+                    </div>
+                    <p id="progressText" class="text-sm text-gray-600 mt-1"></p>
+                    <p id="remainingTimeText" class="text-sm text-gray-600"></p>
+                </div>
+            </div>
+
+            <div class="mt-8 text-center">
+                <a href="/" class="text-blue-500 hover:underline">検索ページに戻る</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const startIndexingBtn = document.getElementById('startIndexingBtn');
+        const stopIndexingBtn = document.getElementById('stopIndexingBtn');
+        const indexingStatusDiv = document.getElementById('indexingStatus');
+        const statusText = document.getElementById('statusText');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const remainingTimeText = document.getElementById('remainingTimeText');
+
+        let intervalId;
+
+        async function fetchIndexingStatus() {
+            try {
+                const response = await fetch('/indexing_status');
+                const data = await response.json();
+
+                // インデックス作成が完了、失敗、または停止した場合
+                if (data.status === 'not_started' || data.status === 'completed' || data.status === 'failed' || data.status === 'stopped') {
+                    indexingStatusDiv.classList.add('hidden');
+                    startIndexingBtn.classList.remove('hidden');
+                    stopIndexingBtn.classList.add('hidden');
+                    clearInterval(intervalId);
+                    if (data.status === 'stopped') {
+                        statusText.textContent = 'ステータス: 中止されました';
+                        indexingStatusDiv.classList.remove('hidden'); // 一時的に表示してメッセージを見せる
+                        setTimeout(() => { indexingStatusDiv.classList.add('hidden'); }, 3000); // 3秒後に非表示
+                    }
+                    return;
+                }
+
+                // インデックス作成中の場合
+                indexingStatusDiv.classList.remove('hidden');
+                startIndexingBtn.classList.add('hidden');
+
+                if (data.stop_requested) {
+                    stopIndexingBtn.classList.add('hidden'); // 中止要求済みなら中止ボタンを非表示
+                    statusText.textContent = 'ステータス: 中止処理中...';
+                } else {
+                    stopIndexingBtn.classList.remove('hidden'); // 中止要求されていなければ中止ボタンを表示
+                    statusText.textContent = `ステータス: ${getStatusDisplayName(data.status)}`;
+                }
+
+                if (data.total_files > 0) {
+                    const percentage = (data.processed_files / data.total_files) * 100;
+                    progressBar.style.width = `${percentage.toFixed(2)}%`;
+                    progressText.textContent = `処理済み: ${data.processed_files} / ${data.total_files} ファイル`;
+
+                    if (data.status === 'indexing') {
+                        const remainingSeconds = Math.max(0, data.remaining_time);
+                        remainingTimeText.textContent = `残り時間: ${formatTime(remainingSeconds)}`;
+                    } else {
+                        remainingTimeText.textContent = '';
+                    }
+                } else {
+                    progressBar.style.width = '0%';
+                    progressText.textContent = 'ファイル数を計算中...';
+                    remainingTimeText.textContent = '';
+                }
+
+            } catch (error) {
+                console.error('Error fetching indexing status:', error);
+                statusText.textContent = 'ステータス取得エラー';
+                indexingStatusDiv.classList.remove('hidden');
+                startIndexingBtn.classList.remove('hidden');
+                stopIndexingBtn.classList.add('hidden');
+                clearInterval(intervalId);
+            }
+        }
+
+        function getStatusDisplayName(status) {
+            switch (status) {
+                case 'started': return '開始済み';
+                case 'indexing': return 'インデックス作成中';
+                case 'completed': return '完了';
+                case 'failed': return '失敗';
+                case 'stopped': return '中止';
+                default: return status;
+            }
+        }
+
+        function formatTime(seconds) {
+            if (seconds === 0) return '計算中...';
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = Math.round(seconds % 60);
+            return `${minutes}分 ${remainingSeconds}秒`;
+        }
+
+        // Initial fetch and set up interval
+        fetchIndexingStatus();
+        intervalId = setInterval(fetchIndexingStatus, 3000); // Fetch every 3 seconds
+
+        // Handle manual indexing trigger
+        startIndexingBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            window.location.href = startIndexingBtn.href;
+            indexingStatusDiv.classList.remove('hidden');
+            startIndexingBtn.classList.add('hidden');
+            stopIndexingBtn.classList.remove('hidden'); // 開始時に中止ボタンを表示
+            // Start polling immediately after triggering
+            clearInterval(intervalId);
+            intervalId = setInterval(fetchIndexingStatus, 3000);
+        });
+
+        // Handle stop indexing trigger
+        stopIndexingBtn.addEventListener('click', async (event) => {
+            event.preventDefault();
+            await fetch(stopIndexingBtn.href); // 中止リクエストを送信
+            // 中止リクエスト送信後、すぐにステータスを更新してUIを反映
+            fetchIndexingStatus(); 
+        });
+
+    </script>
+</body>
+</html>
