@@ -37105,3 +37105,17 @@ myenv/Scripts/vba_extract.py
 myenv/Scripts/__pycache__/log2design.cpython-312.pyc
 myenv/Scripts/__pycache__/sessionmirror.cpython-312.pyc
 myenv/Scripts/__pycache__/vba_extract.cpython-312.pyc
+file_index.db
+myenv/Lib/site-packages/git_filter_repo.py
+myenv/Lib/site-packages/__pycache__/git_filter_repo.cpython-312.pyc
+myenv/Lib/site-packages/git_filter_repo-2.47.0.dist-info/COPYING
+myenv/Lib/site-packages/git_filter_repo-2.47.0.dist-info/COPYING.gpl
+myenv/Lib/site-packages/git_filter_repo-2.47.0.dist-info/COPYING.mit
+myenv/Lib/site-packages/git_filter_repo-2.47.0.dist-info/entry_points.txt
+myenv/Lib/site-packages/git_filter_repo-2.47.0.dist-info/INSTALLER
+myenv/Lib/site-packages/git_filter_repo-2.47.0.dist-info/METADATA
+myenv/Lib/site-packages/git_filter_repo-2.47.0.dist-info/RECORD
+myenv/Lib/site-packages/git_filter_repo-2.47.0.dist-info/REQUESTED
+myenv/Lib/site-packages/git_filter_repo-2.47.0.dist-info/top_level.txt
+myenv/Lib/site-packages/git_filter_repo-2.47.0.dist-info/WHEEL
+myenv/Scripts/git-filter-repo.exe
