@@ -9,7 +9,7 @@
 <body class="bg-gray-100 text-gray-800">
 
     <div class="container mx-auto px-4 py-8">
-        <div class="max-w-3xl mx-auto bg-white p-6 rounded-lg shadow-md">
+        <div class="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-md">
             <h1 class="text-3xl font-bold text-blue-600 mb-6">設定</h1>
 
             {% if message %}
@@ -18,85 +18,104 @@
                 </div>
             {% endif %}
 
-            <form action="/settings" method="post" class="space-y-4">
-                <div>
-                    <label for="target_directory_select" class="block text-sm font-medium text-gray-700">検索対象ディレクトリ (履歴から選択):</label>
-                    <select 
-                        id="target_directory_select" 
-                        name="target_directory" 
-                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        onchange="if(this.value) document.getElementById('target_directory_new').value = this.value;"
-                    >
-                        <option value="">-- 選択してください --</option>
-                        {% for path in directory_history %}
-                            <option value="{{ path }}" {% if path == target_directory %}selected{% endif %}>{{ path }}</option>
-                        {% endfor %}
-                    </select>
-                    <p class="mt-1 text-sm text-gray-500">または新しいパスを入力:</p>
-                    <div class="flex items-center space-x-2">
+            <!-- 新しいインデックスの追加フォーム -->
+            <div class="mb-8 pb-6 border-b border-gray-200">
+                <h2 class="text-xl font-bold text-blue-600 mb-4">新しいインデックスの追加</h2>
+                <form action="/add_index" method="post" class="space-y-4">
+                    <div>
+                        <label for="index_name" class="block text-sm font-medium text-gray-700">インデックス名:</label>
+                        <input 
+                            type="text" 
+                            id="index_name" 
+                            name="name" 
+                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            required
+                        >
+                    </div>
+                    <div>
+                        <label for="target_directory_new" class="block text-sm font-medium text-gray-700">検索対象ディレクトリ:</label>
                         <input 
                             type="text" 
                             id="target_directory_new" 
                             name="target_directory" 
-                            value="{{ target_directory or '' }}" 
                             class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                             required
                         >
-                        <button type="button" onclick="alert('エクスプローラーで目的のフォルダを開き、アドレスバーをクリックしてパスをコピーし、ここに貼り付けてください。')" class="mt-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2">
-                            パスの取得方法
-                        </button>
+                        <p class="mt-1 text-sm text-gray-500">例: C:\Users\YourUser\Documents</p>
                     </div>
-                    <p class="mt-1 text-sm text-gray-500">例: C:\Users\YourUser\Documents</p>
-                </div>
 
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">許可するファイル拡張子:</label>
-                    <div class="grid grid-cols-3 gap-2">
-                        {% for ext in common_extensions %}
-                            <label class="inline-flex items-center">
-                                <input type="checkbox" name="allowed_extensions" value="{{ ext }}" class="form-checkbox h-5 w-5 text-blue-600" {% if ext in allowed_extensions %}checked{% endif %}>
-                                <span class="ml-2 text-gray-700">{{ ext }}</span>
-                            </label>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">許可するファイル拡張子:</label>
+                        <div class="grid grid-cols-3 gap-2">
+                            {% for ext in common_extensions %}
+                                <label class="inline-flex items-center">
+                                    <input type="checkbox" name="allowed_extensions" value="{{ ext }}" class="form-checkbox h-5 w-5 text-blue-600" checked>
+                                    <span class="ml-2 text-gray-700">{{ ext }}</span>
+                                </label>
+                            {% endfor %}
+                        </div>
+                        <p class="mt-1 text-sm text-gray-500">検索対象としたいファイルの拡張子を選択してください。</p>
+                    </div>
+
+                    <button 
+                        type="submit" 
+                        class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                    >
+                        インデックスを追加
+                    </button>
+                </form>
+            </div>
+
+            <!-- 既存のインデックス一覧 -->
+            <div class="mb-8">
+                <h2 class="text-xl font-bold text-blue-600 mb-4">既存のインデックス</h2>
+                {% if indexes %}
+                    <ul class="space-y-4">
+                        {% for index in indexes %}
+                            <li class="bg-gray-50 p-4 rounded-md border border-gray-200">
+                                <div class="flex justify-between items-center mb-2">
+                                    <h3 class="text-lg font-semibold">{{ index.name }}</h3>
+                                    <div class="flex space-x-2">
+                                        <a 
+                                            href="/trigger_index_for_id/{{ index.id }}" 
+                                            class="inline-block px-3 py-1 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 index-start-btn"
+                                            data-index-id="{{ index.id }}"
+                                        >
+                                            インデックス作成
+                                        </a>
+                                        <button 
+                                            type="button" 
+                                            class="inline-block px-3 py-1 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 index-delete-btn"
+                                            data-index-id="{{ index.id }}"
+                                        >
+                                            削除
+                                        </button>
+                                    </div>
+                                </div>
+                                <p class="text-sm text-gray-700"><strong>ディレクトリ:</strong> {{ index.target_directory }}</p>
+                                <p class="text-sm text-gray-700"><strong>拡張子:</strong> {{ index.allowed_extensions }}</p>
+                                <p class="text-sm text-gray-700"><strong>最終インデックス作成:</strong> {{ index.last_indexed_at if index.last_indexed_at else 'N/A' }}</p>
+                                <div class="mt-2 p-2 bg-gray-100 rounded-md" id="indexingStatus_{{ index.id }}" style="display: none;">
+                                    <p class="font-semibold">ステータス: <span id="statusText_{{ index.id }}"></span></p>
+                                    <div class="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 mt-1">
+                                        <div id="progressBar_{{ index.id }}" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+                                    </div>
+                                    <p id="progressText_{{ index.id }}" class="text-sm text-gray-600 mt-1"></p>
+                                    <p id="remainingTimeText_{{ index.id }}" class="text-sm text-gray-600"></p>
+                                    <button 
+                                        type="button" 
+                                        class="inline-block px-3 py-1 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 mt-2 index-stop-btn"
+                                        data-index-id="{{ index.id }}"
+                                    >
+                                        中止
+                                    </button>
+                                </div>
+                            </li>
                         {% endfor %}
-                    </div>
-                    <p class="mt-1 text-sm text-gray-500">検索対象としたいファイルの拡張子を選択してください。</p>
-                </div>
-
-                <button 
-                    type="submit" 
-                    class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                >
-                    設定を保存
-                </button>
-            </form>
-
-            <div class="mt-8 pt-6 border-t border-gray-200">
-                <h2 class="text-xl font-bold text-blue-600 mb-4">インデックスの再作成</h2>
-                <p class="text-gray-700 mb-4">設定を変更した場合や、新しいファイルを追加した場合は、インデックスを再作成してください。</p>
-                <a 
-                    href="/index_now" 
-                    class="inline-block px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-                    id="startIndexingBtn"
-                >
-                    今すぐインデックスを作成
-                </a>
-                <a 
-                    href="/stop_indexing" 
-                    class="inline-block px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 ml-2 hidden"
-                    id="stopIndexingBtn"
-                >
-                    インデックス作成を中止
-                </a>
-
-                <div id="indexingStatus" class="mt-4 p-4 bg-gray-50 rounded-md hidden">
-                    <p class="font-semibold">インデックス作成状況:</p>
-                    <p id="statusText" class="text-lg font-bold"></p>
-                    <div class="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 mt-2">
-                        <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
-                    </div>
-                    <p id="progressText" class="text-sm text-gray-600 mt-1"></p>
-                    <p id="remainingTimeText" class="text-sm text-gray-600"></p>
-                </div>
+                    </ul>
+                {% else %}
+                    <p class="text-gray-600">まだインデックスが追加されていません。</p>
+                {% endif %}
             </div>
 
             <div class="mt-8 text-center">
@@ -106,78 +125,163 @@
     </div>
 
     <script>
-        const startIndexingBtn = document.getElementById('startIndexingBtn');
-        const stopIndexingBtn = document.getElementById('stopIndexingBtn');
-        const indexingStatusDiv = document.getElementById('indexingStatus');
-        const statusText = document.getElementById('statusText');
-        const progressBar = document.getElementById('progressBar');
-        const progressText = document.getElementById('progressText');
-        const remainingTimeText = document.getElementById('remainingTimeText');
+        const commonExtensions = JSON.parse('{{ common_extensions | tojson | safe }}');
 
-        let intervalId;
+        // 新しいインデックス追加フォームの拡張子チェックボックスをデフォルトで全てチェック
+        document.addEventListener('DOMContentLoaded', () => {
+            const newIndexForm = document.querySelector('form[action="/add_index"]');
+            if (newIndexForm) {
+                commonExtensions.forEach(ext => {
+                    const checkbox = newIndexForm.querySelector(`input[name="allowed_extensions"][value="${ext}"]`);
+                    if (checkbox) {
+                        checkbox.checked = true;
+                    }
+                });
+            }
+        });
 
-        async function fetchIndexingStatus() {
+        // インデックス削除ボタンのイベントリスナー
+        document.querySelectorAll('.index-delete-btn').forEach(button => {
+            button.addEventListener('click', async (event) => {
+                const indexId = event.target.dataset.indexId;
+                if (confirm(`このインデックス (ID: ${indexId}) を本当に削除しますか？`)) {
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = `/delete_index/${indexId}`;
+                    document.body.appendChild(form);
+                    form.submit();
+                }
+            });
+        });
+
+        // インデックス作成と中止ボタンのイベントリスナー
+        document.querySelectorAll('.index-start-btn').forEach(button => {
+            button.addEventListener('click', async (event) => {
+                event.preventDefault();
+                const indexId = event.target.dataset.indexId;
+
+                // UIを即座に更新してインデックス作成中表示に切り替える
+                const statusDiv = document.getElementById(`indexingStatus_${indexId}`);
+                if (statusDiv) {
+                    statusDiv.style.display = 'block';
+                    document.getElementById(`statusText_${indexId}`).textContent = '開始済み';
+                    document.getElementById(`progressBar_${indexId}`).style.width = '0%';
+                    document.getElementById(`progressText_${indexId}`).textContent = 'ファイル数を計算中...';
+                    document.getElementById(`remainingTimeText_${indexId}`).textContent = '';
+                }
+
+                try {
+                    // fetch APIを使用してバックエンドを呼び出す
+                    const response = await fetch(`/trigger_index_for_id/${indexId}`);
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'インデックス作成のトリガーに失敗しました。');
+                    }
+                    // ポーリングを開始
+                    startPolling(indexId);
+                } catch (error) {
+                    console.error(`Error triggering index for ID ${indexId}:`, error);
+                    alert(`インデックス作成の開始に失敗しました: ${error.message}`);
+                    // エラー時はステータス表示を非表示に戻す
+                    if (statusDiv) {
+                        statusDiv.style.display = 'none';
+                    }
+                }
+            });
+        });
+
+        document.querySelectorAll('.index-stop-btn').forEach(button => {
+            button.addEventListener('click', async (event) => {
+                const indexId = event.target.dataset.indexId;
+                if (confirm(`このインデックス (ID: ${indexId}) の作成を中止しますか？`)) {
+                    await fetch(`/stop_indexing_for_id/${indexId}`);
+                    // 中止リクエスト送信後、すぐにステータスを更新してUIを反映
+                    fetchIndexingStatus(indexId); 
+                }
+            });
+        });
+
+        // インデックス作成状況のポーリング
+        const pollingIntervals = {}; // 各インデックスのインターバルIDを保存
+
+        async function fetchIndexingStatus(indexId) {
             try {
-                const response = await fetch('/indexing_status');
+                const response = await fetch(`/indexing_status_for_id/${indexId}`);
                 const data = await response.json();
 
+                const statusDiv = document.getElementById(`indexingStatus_${indexId}`);
+                const statusTextElem = document.getElementById(`statusText_${indexId}`);
+                const progressBarElem = document.getElementById(`progressBar_${indexId}`);
+                const progressTextElem = document.getElementById(`progressText_${indexId}`);
+                const remainingTimeTextElem = document.getElementById(`remainingTimeText_${indexId}`);
+                const startBtn = document.querySelector(`.index-start-btn[data-index-id="${indexId}"]`);
+                const stopBtn = document.querySelector(`.index-stop-btn[data-index-id="${indexId}"]`);
+
+                if (!statusDiv) return; // 要素が見つからない場合は何もしない
+
+                const metaStatus = data.meta_status; // メタDBのステータス
+                const individualDbStatus = data.status; // 個別DBのステータス
+
                 // インデックス作成が完了、失敗、または停止した場合
-                if (data.status === 'not_started' || data.status === 'completed' || data.status === 'failed' || data.status === 'stopped') {
-                    indexingStatusDiv.classList.add('hidden');
-                    startIndexingBtn.classList.remove('hidden');
-                    stopIndexingBtn.classList.add('hidden');
-                    clearInterval(intervalId);
-                    if (data.status === 'stopped') {
-                        statusText.textContent = 'ステータス: 中止されました';
-                        indexingStatusDiv.classList.remove('hidden'); // 一時的に表示してメッセージを見せる
-                        setTimeout(() => { indexingStatusDiv.classList.add('hidden'); }, 3000); // 3秒後に非表示
+                if (metaStatus === 'not_indexed' || metaStatus === 'completed' || metaStatus === 'failed' || metaStatus === 'stopped') {
+                    statusDiv.style.display = 'none';
+                    if (startBtn) startBtn.style.display = 'inline-block';
+                    if (stopBtn) stopBtn.style.display = 'none';
+                    clearInterval(pollingIntervals[indexId]);
+                    delete pollingIntervals[indexId];
+                    if (metaStatus === 'stopped') {
+                        // 中止された場合は一時的にメッセージを表示
+                        statusTextElem.textContent = 'ステータス: 中止されました';
+                        statusDiv.style.display = 'block';
+                        setTimeout(() => { statusDiv.style.display = 'none'; }, 3000);
                     }
                     return;
                 }
 
                 // インデックス作成中の場合
-                indexingStatusDiv.classList.remove('hidden');
-                startIndexingBtn.classList.add('hidden');
+                statusDiv.style.display = 'block';
+                if (startBtn) startBtn.style.display = 'none';
 
-                if (data.stop_requested) {
-                    stopIndexingBtn.classList.add('hidden'); // 中止要求済みなら中止ボタンを非表示
-                    statusText.textContent = 'ステータス: 中止処理中...';
+                if (data.stop_requested || metaStatus === 'stopping') {
+                    if (stopBtn) stopBtn.style.display = 'none';
+                    statusTextElem.textContent = 'ステータス: 中止処理中...';
                 } else {
-                    stopIndexingBtn.classList.remove('hidden'); // 中止要求されていなければ中止ボタンを表示
-                    statusText.textContent = `ステータス: ${getStatusDisplayName(data.status)}`;
+                    if (stopBtn) stopBtn.style.display = 'inline-block';
+                    statusTextElem.textContent = `ステータス: ${getStatusDisplayName(individualDbStatus)}`;
                 }
 
                 if (data.total_files > 0) {
                     const percentage = (data.processed_files / data.total_files) * 100;
-                    progressBar.style.width = `${percentage.toFixed(2)}%`;
-                    progressText.textContent = `処理済み: ${data.processed_files} / ${data.total_files} ファイル`;
+                    progressBarElem.style.width = `${percentage.toFixed(2)}%`;
+                    progressTextElem.textContent = `処理済み: ${data.processed_files} / ${data.total_files} ファイル`;
 
-                    if (data.status === 'indexing') {
+                    if (individualDbStatus === 'running') {
                         const remainingSeconds = Math.max(0, data.remaining_time);
-                        remainingTimeText.textContent = `残り時間: ${formatTime(remainingSeconds)}`;
+                        remainingTimeTextElem.textContent = `残り時間: ${formatTime(remainingSeconds)}`;
                     } else {
-                        remainingTimeText.textContent = '';
+                        remainingTimeTextElem.textContent = '';
                     }
                 } else {
-                    progressBar.style.width = '0%';
-                    progressText.textContent = 'ファイル数を計算中...';
-                    remainingTimeText.textContent = '';
+                    progressBarElem.style.width = '0%';
+                    progressTextElem.textContent = 'ファイル数を計算中...';
+                    remainingTimeTextElem.textContent = '';
                 }
 
             } catch (error) {
-                console.error('Error fetching indexing status:', error);
-                statusText.textContent = 'ステータス取得エラー';
-                indexingStatusDiv.classList.remove('hidden');
-                startIndexingBtn.classList.remove('hidden');
-                stopIndexingBtn.classList.add('hidden');
-                clearInterval(intervalId);
+                console.error(`Error fetching indexing status for index ${indexId}:`, error);
+                const statusDiv = document.getElementById(`indexingStatus_${indexId}`);
+                if (statusDiv) {
+                    statusDiv.style.display = 'none'; // エラー時は非表示
+                }
+                clearInterval(pollingIntervals[indexId]);
+                delete pollingIntervals[indexId];
             }
         }
 
         function getStatusDisplayName(status) {
             switch (status) {
                 case 'started': return '開始済み';
-                case 'indexing': return 'インデックス作成中';
+                case 'running': return 'インデックス作成中';
                 case 'completed': return '完了';
                 case 'failed': return '失敗';
                 case 'stopped': return '中止';
@@ -192,28 +296,23 @@
             return `${minutes}分 ${remainingSeconds}秒`;
         }
 
-        // Initial fetch and set up interval
-        fetchIndexingStatus();
-        intervalId = setInterval(fetchIndexingStatus, 3000); // Fetch every 3 seconds
+        function startPolling(indexId) {
+            if (pollingIntervals[indexId]) {
+                clearInterval(pollingIntervals[indexId]);
+            }
+            pollingIntervals[indexId] = setInterval(() => fetchIndexingStatus(indexId), 3000);
+        }
 
-        // Handle manual indexing trigger
-        startIndexingBtn.addEventListener('click', (event) => {
-            event.preventDefault();
-            window.location.href = startIndexingBtn.href;
-            indexingStatusDiv.classList.remove('hidden');
-            startIndexingBtn.classList.add('hidden');
-            stopIndexingBtn.classList.remove('hidden'); // 開始時に中止ボタンを表示
-            // Start polling immediately after triggering
-            clearInterval(intervalId);
-            intervalId = setInterval(fetchIndexingStatus, 3000);
-        });
-
-        // Handle stop indexing trigger
-        stopIndexingBtn.addEventListener('click', async (event) => {
-            event.preventDefault();
-            await fetch(stopIndexingBtn.href); // 中止リクエストを送信
-            // 中止リクエスト送信後、すぐにステータスを更新してUIを反映
-            fetchIndexingStatus(); 
+        // ページロード時にすべてのインデックスのステータスをチェックし、必要ならポーリングを開始
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('[data-index-id]').forEach(element => {
+                const indexId = element.dataset.indexId;
+                // ページロード時にfetchIndexingStatusを呼び出し、その中でmetaStatusが'running'ならポーリングを開始
+                fetchIndexingStatus(indexId).then(() => {
+                    // fetchIndexingStatusが完了した後に、もしステータスがrunningならポーリングを開始
+                    // このロジックはfetchIndexingStatus内に移動したため、ここでは不要
+                });
+            });
         });
 
     </script>
