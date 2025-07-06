@@ -17,61 +17,65 @@ def get_db_connection():
 
 def create_tables():
     """
-    データベースファイルとテーブルを（再）作成し、WALモードを有効にします。
+    データベースとテーブルが存在しない場合にのみ初期化し、WALモードを有効にします。
     """
     with db_lock:
-        if os.path.exists(DATABASE_NAME):
-            os.remove(DATABASE_NAME)
-            logger.info(f"既存のデータベースファイル {DATABASE_NAME} を削除しました。")
-
         conn = get_db_connection()
         try:
-            # ジャーナルモードをWALに設定して並行処理性能を向上 (最重要)
+            # ジャーナルモードをWALに設定 (既に設定されていても問題ない)
             conn.execute("PRAGMA journal_mode = WAL;")
-            logger.info("データベースのジャーナルモードをWALに設定しました。")
 
-            logger.info("新しいデータベースとテーブルを作成します...")
-            conn.execute("""
-                CREATE TABLE files (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    path TEXT NOT NULL UNIQUE,
-                    content TEXT
-                )
-            """)
-            conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
-            conn.execute("CREATE TABLE directory_history (path TEXT PRIMARY KEY, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
-            conn.execute("""
-                CREATE TABLE indexing_status (
-                    id INTEGER PRIMARY KEY,
-                    status TEXT NOT NULL,
-                    total_files INTEGER,
-                    processed_files INTEGER,
-                    start_time REAL,
-                    estimated_end_time REAL
-                );
-            """)
-            conn.execute("""
-                CREATE VIRTUAL TABLE files_fts USING fts5(
-                    path, 
-                    content, 
-                    content='files', 
-                    content_rowid='id',
-                    tokenize = 'porter unicode61',
-                    detail=full
-                );
-            """)
-            logger.info("FTS5テーブルが 'detail=full' で正常に作成されました。")
-            
-            # デフォルト設定
-            conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ('TARGET_DIRECTORY', r'C:\Users\yasud\OneDrive\電子書籍\研修資料'))
-            conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ('ALLOWED_EXTENSIONS', '.txt,.md,.py,.html,.css,.js,.json,.xml,.csv,.c,.cpp,.h,.java,.go,.php,.rb,.ts,.sh,.bat,.pdf,.xlsx,.docx,.pptx'))
-            conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ('indexing_stop_requested', 'False'))
-            conn.execute("INSERT INTO directory_history (path) VALUES (?) ", (r'C:\Users\yasud\OneDrive\電子書籍\研修資料',))
-            
-            conn.commit()
-            logger.info("データベーステーブルのセットアップが正常に完了しました。")
+            # 'files'テーブルが存在するかどうかで初期化が必要か判断
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='files'")
+            if cursor.fetchone() is None:
+                logger.info("テーブルが存在しないため、新しいデータベースとテーブルを作成します...")
+                
+                # テーブル作成
+                conn.execute("""
+                    CREATE TABLE files (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        path TEXT NOT NULL UNIQUE,
+                        content TEXT
+                    )
+                """)
+                conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
+                conn.execute("CREATE TABLE directory_history (path TEXT PRIMARY KEY, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)")
+                conn.execute("""
+                    CREATE TABLE indexing_status (
+                        id INTEGER PRIMARY KEY,
+                        status TEXT NOT NULL,
+                        total_files INTEGER,
+                        processed_files INTEGER,
+                        start_time REAL,
+                        estimated_end_time REAL
+                    );
+                """)
+                conn.execute("""
+                    CREATE VIRTUAL TABLE files_fts USING fts5(
+                        path, 
+                        content, 
+                        content='files', 
+                        content_rowid='id',
+                        tokenize = 'porter unicode61',
+                        detail=full
+                    );
+                """)
+                logger.info("FTS5テーブルが 'detail=full' で正常に作成されました。")
+                
+                # デフォルト設定 (初回のみ)
+                conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ('TARGET_DIRECTORY', r'C:\Users\yasud\OneDrive\電子書籍\研修資料'))
+                conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ('ALLOWED_EXTENSIONS', '.txt,.md,.py,.html,.css,.js,.json,.xml,.csv,.c,.cpp,.h,.java,.go,.php,.rb,.ts,.sh,.bat,.pdf,.xlsx,.docx,.pptx'))
+                conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ('indexing_stop_requested', 'False'))
+                conn.execute("INSERT INTO directory_history (path) VALUES (?) ", (r'C:\Users\yasud\OneDrive\電子書籍\研修資料',))
+                
+                conn.commit()
+                logger.info("データベーステーブルのセットアップが正常に完了しました。")
+            else:
+                logger.info("既存のデータベースとテーブルを使用します。")
+
         except sqlite3.Error as e:
-            logger.error(f"テーブル作成中に致命的なエラーが発生しました: {e}", exc_info=True)
+            logger.error(f"データベースセットアップ中に致命的なエラーが発生しました: {e}", exc_info=True)
             raise
         finally:
             conn.close()
