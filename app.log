@@ -4182,3 +4182,23 @@ sqlite3.OperationalError: no such column: 穴埋め
 2026-01-18 09:53:51,668 - database - INFO - インデックスデータベース 'indexes\index_20250706114612_7.db' のテーブルは既に存在します。
 2026-01-18 09:53:51,670 - database - DEBUG - DB: update_indexing_status called for indexes\index_20250706114612_7.db with status=not_started, total_files=None, processed_files=None
 2026-01-18 09:53:51,684 - __main__ - INFO - FastAPIアプリケーションの起動イベントが完了しました。
+2026-01-18 09:54:04,904 - __main__ - DEBUG - Parsed tokens: ['Python']
+2026-01-18 09:54:04,906 - __main__ - DEBUG - Parsed query 'Python' -> FTS5 query 'Python*'
+2026-01-18 09:54:04,906 - __main__ - DEBUG - Original query: 'Python'
+2026-01-18 09:54:04,907 - __main__ - DEBUG - Parsed FTS5 query: 'Python*'
+2026-01-18 09:54:39,654 - __main__ - DEBUG - Parsed tokens: ['Python', 'Kaggle']
+2026-01-18 09:54:39,654 - __main__ - DEBUG - Parsed query 'Python Kaggle' -> FTS5 query 'Python* Kaggle*'
+2026-01-18 09:54:39,654 - __main__ - DEBUG - Original query: 'Python Kaggle'
+2026-01-18 09:54:39,654 - __main__ - DEBUG - Parsed FTS5 query: 'Python* Kaggle*'
+2026-01-18 09:55:05,369 - __main__ - DEBUG - Parsed tokens: ['Kaggle']
+2026-01-18 09:55:05,371 - __main__ - DEBUG - Parsed query 'Kaggle' -> FTS5 query 'Kaggle*'
+2026-01-18 09:55:05,374 - __main__ - DEBUG - Original query: 'Kaggle'
+2026-01-18 09:55:05,375 - __main__ - DEBUG - Parsed FTS5 query: 'Kaggle*'
+2026-01-18 09:55:19,602 - __main__ - DEBUG - Parsed tokens: ['Kaggle', 'NOT 入門']
+2026-01-18 09:55:19,604 - __main__ - DEBUG - Parsed query 'Kaggle　-入門' -> FTS5 query 'Kaggle* NOT 入門*'
+2026-01-18 09:55:19,604 - __main__ - DEBUG - Original query: 'Kaggle　-入門'
+2026-01-18 09:55:19,604 - __main__ - DEBUG - Parsed FTS5 query: 'Kaggle* NOT 入門*'
+2026-01-18 09:55:37,152 - __main__ - DEBUG - Parsed tokens: ['Kaggle']
+2026-01-18 09:55:37,154 - __main__ - DEBUG - Parsed query 'Kaggle' -> FTS5 query 'Kaggle*'
+2026-01-18 09:55:37,156 - __main__ - DEBUG - Original query: 'Kaggle　'
+2026-01-18 09:55:37,157 - __main__ - DEBUG - Parsed FTS5 query: 'Kaggle*'
