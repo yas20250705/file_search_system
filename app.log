@@ -4164,3 +4164,21 @@ sqlite3.OperationalError: no such column: 穴埋め
 2026-01-18 09:43:37,290 - __main__ - DEBUG - Parsed query 'あ' -> FTS5 query 'あ*'
 2026-01-18 09:43:37,290 - __main__ - DEBUG - Original query: 'あ'
 2026-01-18 09:43:37,291 - __main__ - DEBUG - Parsed FTS5 query: 'あ*'
+2026-01-18 09:48:47,360 - __main__ - DEBUG - Parsed tokens: ['あ']
+2026-01-18 09:48:47,364 - __main__ - DEBUG - Parsed query 'あ' -> FTS5 query 'あ*'
+2026-01-18 09:48:47,369 - __main__ - DEBUG - Original query: 'あ'
+2026-01-18 09:48:47,376 - __main__ - DEBUG - Parsed FTS5 query: 'あ*'
+2026-01-18 09:53:51,474 - __main__ - INFO - アプリケーションの起動プロセスを開始します。
+2026-01-18 09:53:51,474 - database - INFO - 既存のメタデータベースを使用します。
+2026-01-18 09:53:51,474 - __main__ - INFO - データベースの初期化が正常に完了しました。
+2026-01-18 09:53:51,604 - asyncio - DEBUG - Using proactor: IocpProactor
+2026-01-18 09:53:51,632 - database - INFO - インデックスデータベース 'indexes\index_20250706115958_2.db' のジャーナルモードをWALに設定しました。
+2026-01-18 09:53:51,632 - database - INFO - インデックスデータベース 'indexes\index_20250706115958_2.db' のテーブルは既に存在します。
+2026-01-18 09:53:51,634 - database - DEBUG - DB: update_indexing_status called for indexes\index_20250706115958_2.db with status=not_started, total_files=None, processed_files=None
+2026-01-18 09:53:51,647 - database - INFO - インデックスデータベース 'indexes\index_20250706114348_2.db' のジャーナルモードをWALに設定しました。
+2026-01-18 09:53:51,647 - database - INFO - インデックスデータベース 'indexes\index_20250706114348_2.db' のテーブルは既に存在します。
+2026-01-18 09:53:51,647 - database - DEBUG - DB: update_indexing_status called for indexes\index_20250706114348_2.db with status=not_started, total_files=None, processed_files=None
+2026-01-18 09:53:51,668 - database - INFO - インデックスデータベース 'indexes\index_20250706114612_7.db' のジャーナルモードをWALに設定しました。
+2026-01-18 09:53:51,668 - database - INFO - インデックスデータベース 'indexes\index_20250706114612_7.db' のテーブルは既に存在します。
+2026-01-18 09:53:51,670 - database - DEBUG - DB: update_indexing_status called for indexes\index_20250706114612_7.db with status=not_started, total_files=None, processed_files=None
+2026-01-18 09:53:51,684 - __main__ - INFO - FastAPIアプリケーションの起動イベントが完了しました。

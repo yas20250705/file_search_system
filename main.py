@@ -411,7 +411,7 @@ async def search_files(request: Request, q: str = Query(None), index_id: int = Q
                 })
             
             cursor = conn.execute("""
-                SELECT path, snippet(files_fts, 1, '<b>', '</b>', '...', 15)
+                SELECT path, snippet(files_fts, 1, '<b>', '</b>', '...', 100)
                 FROM files_fts
                 WHERE files_fts MATCH ?
                 ORDER BY rank
@@ -419,7 +419,11 @@ async def search_files(request: Request, q: str = Query(None), index_id: int = Q
             """, (fts_query,))
             fetched_rows = cursor.fetchall()
             for row in fetched_rows:
-                results.append({"path": row['path'], "snippets": [{"text": row[1]}]})
+                # スニペットを200文字に制限
+                snippet_text = row[1] if row[1] else ""
+                if len(snippet_text) > 200:
+                    snippet_text = snippet_text[:200] + "..."
+                results.append({"path": row['path'], "snippets": [{"text": snippet_text}]})
         except sqlite3.OperationalError as e:
             logger.error(f"Search query failed on {db_path}: {e}", exc_info=True)
             error_msg = str(e)
