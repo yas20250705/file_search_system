@@ -191,7 +191,19 @@
             <!-- 検索結果 -->
             {% if results %}
                 <div class="bg-white p-6 rounded-lg shadow-md">
-                    <h2 class="text-xl font-semibold mb-4">検索結果 ({{ results|length }}件)</h2>
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-semibold">検索結果 ({{ results|length }}件)</h2>
+                        <button 
+                            onclick="exportDocuments()"
+                            class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 flex items-center gap-2"
+                            title="ChatGPT等のLLMに読み込ませるためのMarkdown形式でエクスポート"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            LLM用エクスポート
+                        </button>
+                    </div>
                     <ul>
                         {% for result in results %}
                             <li class="mb-6 border-b pb-4">
@@ -265,6 +277,47 @@
                 createdYearInput.style.display = 'block';
             }
         });
+        
+        // 検索結果をMarkdown形式でエクスポート
+        function exportDocuments() {
+            // 現在の検索パラメータを取得
+            const urlParams = new URLSearchParams(window.location.search);
+            const indexId = urlParams.get('index_id');
+            const query = urlParams.get('q');
+            
+            if (!indexId || !query) {
+                alert('検索を実行してからエクスポートしてください。');
+                return;
+            }
+            
+            // エクスポートURLを構築
+            const exportUrl = new URL('/export', window.location.origin);
+            
+            // 必須パラメータ
+            exportUrl.searchParams.set('index_id', indexId);
+            exportUrl.searchParams.set('q', query);
+            
+            // オプションパラメータ（存在する場合のみ追加）
+            const optionalParams = [
+                'file_type',
+                'modified_date_filter',
+                'created_date_filter',
+                'modified_date_filter_year',
+                'created_date_filter_year',
+                'modified_date_filter_select',
+                'created_date_filter_select'
+            ];
+            
+            optionalParams.forEach(param => {
+                const value = urlParams.get(param);
+                if (value) {
+                    exportUrl.searchParams.set(param, value);
+                }
+            });
+            
+            // ダウンロードを開始
+            window.location.href = exportUrl.toString();
+        }
     </script>
 
 </body>

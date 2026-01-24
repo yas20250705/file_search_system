@@ -719,6 +719,183 @@ async def search_files(
         "common_extensions": COMMON_EXTENSIONS
     })
 
+@app.get("/export")
+async def export_documents(
+    index_id: int = Query(...),
+    q: str = Query(...),
+    file_type: str = Query(None),
+    modified_date_filter: str = Query(None),
+    created_date_filter: str = Query(None),
+    modified_date_filter_year: str = Query(None),
+    created_date_filter_year: str = Query(None),
+    modified_date_filter_select: str = Query(None),
+    created_date_filter_select: str = Query(None)
+):
+    """
+    検索結果のドキュメントをMarkdown形式でエクスポートします。
+    ChatGPTなどのLLMに読み込ませるのに適したフォーマットで出力します。
+    """
+    from fastapi.responses import PlainTextResponse
+    
+    index_config = get_index_config_by_id(index_id)
+    if not index_config:
+        return PlainTextResponse("Error: Index not found", status_code=404)
+    
+    # セレクトボックスからの値を処理
+    if modified_date_filter_select and modified_date_filter_select != 'year:custom':
+        modified_date_filter = modified_date_filter_select
+    if created_date_filter_select and created_date_filter_select != 'year:custom':
+        created_date_filter = created_date_filter_select
+    
+    # 年指定の処理
+    if modified_date_filter_year:
+        modified_date_filter = f"year:{modified_date_filter_year}"
+    if created_date_filter_year:
+        created_date_filter = f"year:{created_date_filter_year}"
+    
+    db_path = index_config['db_path']
+    conn = get_index_db_connection(db_path)
+    
+    try:
+        # 検索クエリをパース
+        fts_query = parse_search_query(q)
+        if not fts_query:
+            return PlainTextResponse("Error: Empty query", status_code=400)
+        
+        # フィルター条件を構築
+        filter_conditions = []
+        filter_params = []
+        
+        if file_type:
+            filter_conditions.append("files.file_type = ?")
+            filter_params.append(file_type.lower())
+        
+        if modified_date_filter:
+            start_ts, end_ts = get_date_range(modified_date_filter)
+            if start_ts is not None and end_ts is not None:
+                filter_conditions.append("files.modified_date IS NOT NULL AND files.modified_date >= ? AND files.modified_date <= ?")
+                filter_params.extend([start_ts, end_ts])
+        
+        if created_date_filter:
+            start_ts, end_ts = get_date_range(created_date_filter)
+            if start_ts is not None and end_ts is not None:
+                filter_conditions.append("files.created_date IS NOT NULL AND files.created_date >= ? AND files.created_date <= ?")
+                filter_params.extend([start_ts, end_ts])
+        
+        # 検索語が2文字以下かどうかを判定
+        search_terms = [term for term in q.strip().split() if term.upper() not in ['OR', 'AND'] and not term.startswith('-')]
+        use_like_search = any(len(term.strip('"')) <= 2 for term in search_terms)
+        
+        documents = []
+        
+        if use_like_search:
+            # LIKE検索
+            like_conditions = []
+            like_params = []
+            for term in search_terms:
+                clean_term = term.strip('"')
+                like_conditions.append("files.content LIKE ?")
+                like_params.append(f"%{clean_term}%")
+            
+            all_conditions = like_conditions + filter_conditions
+            where_clause = " AND ".join(all_conditions) if all_conditions else "1=1"
+            all_params = like_params + filter_params
+            
+            cursor = conn.execute(f"""
+                SELECT files.path, files.content, files.modified_date, files.created_date, files.file_type
+                FROM files
+                WHERE {where_clause}
+            """, all_params)
+        else:
+            # FTS5検索
+            fts_join = "INNER JOIN files ON files_fts.path = files.path"
+            fts_where = "files_fts MATCH ?"
+            fts_params = [fts_query]
+            
+            if filter_conditions:
+                fts_where += " AND " + " AND ".join(filter_conditions)
+                fts_params.extend(filter_params)
+            
+            cursor = conn.execute(f"""
+                SELECT files.path, files.content, files.modified_date, files.created_date, files.file_type
+                FROM files_fts
+                {fts_join}
+                WHERE {fts_where}
+                ORDER BY rank
+            """, fts_params)
+        
+        rows = cursor.fetchall()
+        
+        # Markdown形式でフォーマット
+        markdown_output = []
+        markdown_output.append(f"# 検索結果エクスポート")
+        markdown_output.append(f"")
+        markdown_output.append(f"**検索クエリ:** {q}")
+        markdown_output.append(f"**検索対象インデックス:** {index_config['name']}")
+        markdown_output.append(f"**ヒット件数:** {len(rows)}件")
+        markdown_output.append(f"")
+        markdown_output.append(f"---")
+        markdown_output.append(f"")
+        
+        def format_timestamp(ts):
+            if ts is None:
+                return "不明"
+            try:
+                return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+            except (OSError, OverflowError, ValueError):
+                return "不明"
+        
+        for i, row in enumerate(rows, 1):
+            path = row['path']
+            content = row['content'] or ""
+            modified_date = format_timestamp(row['modified_date'])
+            created_date = format_timestamp(row['created_date'])
+            file_type_val = row['file_type'] or "不明"
+            
+            # ファイル名を抽出
+            filename = os.path.basename(path)
+            
+            markdown_output.append(f"## ドキュメント {i}: {filename}")
+            markdown_output.append(f"")
+            markdown_output.append(f"- **ファイルパス:** {path}")
+            markdown_output.append(f"- **ファイル種別:** {file_type_val}")
+            markdown_output.append(f"- **作成日時:** {created_date}")
+            markdown_output.append(f"- **変更日時:** {modified_date}")
+            markdown_output.append(f"")
+            markdown_output.append(f"### 本文")
+            markdown_output.append(f"")
+            markdown_output.append(f"```")
+            # 本文が長すぎる場合は制限（ChatGPTへの入力を考慮）
+            if len(content) > 50000:
+                markdown_output.append(content[:50000] + "\n\n... (以下省略、全文は " + str(len(content)) + " 文字)")
+            else:
+                markdown_output.append(content)
+            markdown_output.append(f"```")
+            markdown_output.append(f"")
+            markdown_output.append(f"---")
+            markdown_output.append(f"")
+        
+        markdown_text = "\n".join(markdown_output)
+        
+        # ファイル名を生成
+        safe_query = re.sub(r'[\\/:*?"<>|]', '_', q)[:30]
+        filename = f"export_{safe_query}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        
+        from fastapi.responses import Response
+        return Response(
+            content=markdown_text,
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{filename}"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Export failed: {e}", exc_info=True)
+        return PlainTextResponse(f"Error: {str(e)}", status_code=500)
+    finally:
+        conn.close()
+
 @app.get("/open")
 async def open_file(path: str):
     if not os.path.exists(path):
