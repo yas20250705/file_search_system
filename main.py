@@ -719,123 +719,54 @@ async def search_files(
         "common_extensions": COMMON_EXTENSIONS
     })
 
-@app.get("/export")
+@app.post("/export")
 async def export_documents(
-    index_id: int = Query(...),
-    q: str = Query(...),
-    file_type: str = Query(None),
-    modified_date_filter: str = Query(None),
-    created_date_filter: str = Query(None),
-    modified_date_filter_year: str = Query(None),
-    created_date_filter_year: str = Query(None),
-    modified_date_filter_select: str = Query(None),
-    created_date_filter_select: str = Query(None)
+    index_id: int = Form(...),
+    q: str = Form(...),
+    max_chars: int = Form(100000),
+    selected_paths: str = Form(...),
+    file_type: str = Form(None),
+    modified_date_filter: str = Form(None),
+    created_date_filter: str = Form(None),
+    modified_date_filter_year: str = Form(None),
+    created_date_filter_year: str = Form(None),
+    modified_date_filter_select: str = Form(None),
+    created_date_filter_select: str = Form(None)
 ):
     """
-    検索結果のドキュメントをMarkdown形式でエクスポートします。
-    ChatGPTなどのLLMに読み込ませるのに適したフォーマットで出力します。
+    選択されたドキュメントをMarkdown形式でエクスポートします。
+    文字数制限を超える場合はZIPファイルで分割出力します。
     """
-    from fastapi.responses import PlainTextResponse
+    from fastapi.responses import PlainTextResponse, Response
+    import json
+    import zipfile
+    import io
     
     index_config = get_index_config_by_id(index_id)
     if not index_config:
         return PlainTextResponse("Error: Index not found", status_code=404)
     
-    # セレクトボックスからの値を処理
-    if modified_date_filter_select and modified_date_filter_select != 'year:custom':
-        modified_date_filter = modified_date_filter_select
-    if created_date_filter_select and created_date_filter_select != 'year:custom':
-        created_date_filter = created_date_filter_select
-    
-    # 年指定の処理
-    if modified_date_filter_year:
-        modified_date_filter = f"year:{modified_date_filter_year}"
-    if created_date_filter_year:
-        created_date_filter = f"year:{created_date_filter_year}"
+    # 選択されたパスをパース
+    try:
+        paths = json.loads(selected_paths)
+        if not paths:
+            return PlainTextResponse("Error: No documents selected", status_code=400)
+    except json.JSONDecodeError:
+        return PlainTextResponse("Error: Invalid selected_paths format", status_code=400)
     
     db_path = index_config['db_path']
     conn = get_index_db_connection(db_path)
     
     try:
-        # 検索クエリをパース
-        fts_query = parse_search_query(q)
-        if not fts_query:
-            return PlainTextResponse("Error: Empty query", status_code=400)
-        
-        # フィルター条件を構築
-        filter_conditions = []
-        filter_params = []
-        
-        if file_type:
-            filter_conditions.append("files.file_type = ?")
-            filter_params.append(file_type.lower())
-        
-        if modified_date_filter:
-            start_ts, end_ts = get_date_range(modified_date_filter)
-            if start_ts is not None and end_ts is not None:
-                filter_conditions.append("files.modified_date IS NOT NULL AND files.modified_date >= ? AND files.modified_date <= ?")
-                filter_params.extend([start_ts, end_ts])
-        
-        if created_date_filter:
-            start_ts, end_ts = get_date_range(created_date_filter)
-            if start_ts is not None and end_ts is not None:
-                filter_conditions.append("files.created_date IS NOT NULL AND files.created_date >= ? AND files.created_date <= ?")
-                filter_params.extend([start_ts, end_ts])
-        
-        # 検索語が2文字以下かどうかを判定
-        search_terms = [term for term in q.strip().split() if term.upper() not in ['OR', 'AND'] and not term.startswith('-')]
-        use_like_search = any(len(term.strip('"')) <= 2 for term in search_terms)
-        
-        documents = []
-        
-        if use_like_search:
-            # LIKE検索
-            like_conditions = []
-            like_params = []
-            for term in search_terms:
-                clean_term = term.strip('"')
-                like_conditions.append("files.content LIKE ?")
-                like_params.append(f"%{clean_term}%")
-            
-            all_conditions = like_conditions + filter_conditions
-            where_clause = " AND ".join(all_conditions) if all_conditions else "1=1"
-            all_params = like_params + filter_params
-            
-            cursor = conn.execute(f"""
-                SELECT files.path, files.content, files.modified_date, files.created_date, files.file_type
-                FROM files
-                WHERE {where_clause}
-            """, all_params)
-        else:
-            # FTS5検索
-            fts_join = "INNER JOIN files ON files_fts.path = files.path"
-            fts_where = "files_fts MATCH ?"
-            fts_params = [fts_query]
-            
-            if filter_conditions:
-                fts_where += " AND " + " AND ".join(filter_conditions)
-                fts_params.extend(filter_params)
-            
-            cursor = conn.execute(f"""
-                SELECT files.path, files.content, files.modified_date, files.created_date, files.file_type
-                FROM files_fts
-                {fts_join}
-                WHERE {fts_where}
-                ORDER BY rank
-            """, fts_params)
+        # 選択されたドキュメントを取得
+        placeholders = ','.join(['?' for _ in paths])
+        cursor = conn.execute(f"""
+            SELECT path, content, modified_date, created_date, file_type
+            FROM files
+            WHERE path IN ({placeholders})
+        """, paths)
         
         rows = cursor.fetchall()
-        
-        # Markdown形式でフォーマット
-        markdown_output = []
-        markdown_output.append(f"# 検索結果エクスポート")
-        markdown_output.append(f"")
-        markdown_output.append(f"**検索クエリ:** {q}")
-        markdown_output.append(f"**検索対象インデックス:** {index_config['name']}")
-        markdown_output.append(f"**ヒット件数:** {len(rows)}件")
-        markdown_output.append(f"")
-        markdown_output.append(f"---")
-        markdown_output.append(f"")
         
         def format_timestamp(ts):
             if ts is None:
@@ -845,50 +776,128 @@ async def export_documents(
             except (OSError, OverflowError, ValueError):
                 return "不明"
         
-        for i, row in enumerate(rows, 1):
+        def create_document_markdown(doc_num, row, total_docs):
+            """1つのドキュメントのMarkdownを生成"""
             path = row['path']
             content = row['content'] or ""
             modified_date = format_timestamp(row['modified_date'])
             created_date = format_timestamp(row['created_date'])
             file_type_val = row['file_type'] or "不明"
-            
-            # ファイル名を抽出
             filename = os.path.basename(path)
             
-            markdown_output.append(f"## ドキュメント {i}: {filename}")
-            markdown_output.append(f"")
-            markdown_output.append(f"- **ファイルパス:** {path}")
-            markdown_output.append(f"- **ファイル種別:** {file_type_val}")
-            markdown_output.append(f"- **作成日時:** {created_date}")
-            markdown_output.append(f"- **変更日時:** {modified_date}")
-            markdown_output.append(f"")
-            markdown_output.append(f"### 本文")
-            markdown_output.append(f"")
-            markdown_output.append(f"```")
-            # 本文が長すぎる場合は制限（ChatGPTへの入力を考慮）
-            if len(content) > 50000:
-                markdown_output.append(content[:50000] + "\n\n... (以下省略、全文は " + str(len(content)) + " 文字)")
+            lines = []
+            lines.append(f"## ドキュメント {doc_num}/{total_docs}: {filename}")
+            lines.append(f"")
+            lines.append(f"- **ファイルパス:** {path}")
+            lines.append(f"- **ファイル種別:** {file_type_val}")
+            lines.append(f"- **作成日時:** {created_date}")
+            lines.append(f"- **変更日時:** {modified_date}")
+            lines.append(f"")
+            lines.append(f"### 本文")
+            lines.append(f"")
+            lines.append(f"```")
+            lines.append(content)
+            lines.append(f"```")
+            lines.append(f"")
+            lines.append(f"---")
+            lines.append(f"")
+            return "\n".join(lines)
+        
+        def create_header(part_num=None, total_parts=None):
+            """ヘッダーを生成"""
+            lines = []
+            lines.append(f"# 検索結果エクスポート")
+            if part_num and total_parts:
+                lines.append(f"## パート {part_num}/{total_parts}")
+            lines.append(f"")
+            lines.append(f"**検索クエリ:** {q}")
+            lines.append(f"**検索対象インデックス:** {index_config['name']}")
+            lines.append(f"**選択ドキュメント数:** {len(rows)}件")
+            lines.append(f"**最大文字数設定:** {max_chars:,}文字/ファイル")
+            lines.append(f"")
+            lines.append(f"---")
+            lines.append(f"")
+            return "\n".join(lines)
+        
+        # ドキュメントを文字数制限に基づいて分割
+        all_docs = []
+        total_docs = len(rows)
+        for i, row in enumerate(rows, 1):
+            doc_md = create_document_markdown(i, row, total_docs)
+            all_docs.append((row['path'], doc_md))
+        
+        # ファイルに分割
+        files_content = []
+        current_content = []
+        current_chars = 0
+        header_chars = len(create_header(1, 1))
+        
+        for path, doc_md in all_docs:
+            doc_chars = len(doc_md)
+            
+            # 現在のファイルに追加できるか確認
+            if current_chars + doc_chars + header_chars > max_chars and current_content:
+                # 現在のファイルを保存し、新しいファイルを開始
+                files_content.append(current_content)
+                current_content = [(path, doc_md)]
+                current_chars = doc_chars
             else:
-                markdown_output.append(content)
-            markdown_output.append(f"```")
-            markdown_output.append(f"")
-            markdown_output.append(f"---")
-            markdown_output.append(f"")
+                current_content.append((path, doc_md))
+                current_chars += doc_chars
         
-        markdown_text = "\n".join(markdown_output)
+        # 最後のファイルを追加
+        if current_content:
+            files_content.append(current_content)
         
-        # ファイル名を生成
-        safe_query = re.sub(r'[\\/:*?"<>|]', '_', q)[:30]
-        filename = f"export_{safe_query}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        # ファイル名のベースを生成（ASCIIのみに制限）
+        def sanitize_filename(text):
+            # 非ASCII文字を削除し、特殊文字を置換
+            ascii_only = ''.join(c if ord(c) < 128 else '_' for c in text)
+            safe = re.sub(r'[\\/:*?"<>|]', '_', ascii_only)
+            return safe[:30] or 'export'
         
-        from fastapi.responses import Response
-        return Response(
-            content=markdown_text,
-            media_type="text/markdown; charset=utf-8",
-            headers={
-                "Content-Disposition": f"attachment; filename*=UTF-8''{filename}"
-            }
-        )
+        safe_query = sanitize_filename(q)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        if len(files_content) == 1:
+            # 単一ファイルの場合
+            header = create_header()
+            body = "\n".join([doc_md for _, doc_md in files_content[0]])
+            markdown_text = header + body
+            
+            filename = f"export_{safe_query}_{timestamp}.md"
+            
+            return Response(
+                content=markdown_text.encode('utf-8'),
+                media_type="text/markdown; charset=utf-8",
+                headers={
+                    "Content-Disposition": f"attachment; filename={filename}"
+                }
+            )
+        else:
+            # 複数ファイルの場合はZIPで出力
+            zip_buffer = io.BytesIO()
+            
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                total_parts = len(files_content)
+                for part_num, docs in enumerate(files_content, 1):
+                    header = create_header(part_num, total_parts)
+                    body = "\n".join([doc_md for _, doc_md in docs])
+                    markdown_text = header + body
+                    
+                    part_filename = f"export_{safe_query}_{timestamp}_part{part_num:02d}.md"
+                    zip_file.writestr(part_filename, markdown_text.encode('utf-8'))
+            
+            zip_buffer.seek(0)
+            zip_filename = f"export_{safe_query}_{timestamp}.zip"
+            
+            return Response(
+                content=zip_buffer.getvalue(),
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": f"attachment; filename={zip_filename}"
+                }
+            )
         
     except Exception as e:
         logger.error(f"Export failed: {e}", exc_info=True)
