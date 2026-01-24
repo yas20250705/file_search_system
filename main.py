@@ -348,6 +348,35 @@ async def trigger_index_for_id(index_id: int):
 
     return RedirectResponse(url=f"/settings?message=Indexing for '{index_config['name']}' started in background!", status_code=303)
 
+@app.get("/update_index_for_id/{index_id}")
+async def update_index_for_id(index_id: int):
+    """インデックスを差分更新します（新規・更新・削除されたファイルのみ処理）"""
+    from indexer import update_index_files  # 遅延インポート
+    index_config = get_index_config_by_id(index_id)
+    if not index_config:
+        return RedirectResponse(url="/settings?message=Error: Index not found!", status_code=303)
+    
+    target_directory = index_config['target_directory']
+    allowed_extensions_str = index_config['allowed_extensions']
+    allowed_extensions = [ext.strip() for ext in allowed_extensions_str.split(',') if ext.strip()]
+    db_path = index_config['db_path']
+
+    if not target_directory:
+        return RedirectResponse(url="/settings?message=Error: Target directory not set for this index!", status_code=303)
+    
+    conn = None
+    try:
+        conn = get_index_db_connection(db_path)
+        set_indexing_stop_requested(conn, db_path, False)
+        update_index_status(index_id, 'running')  # メタDBのステータスを更新
+        threading.Thread(target=update_index_files, args=(index_id, target_directory, allowed_extensions, db_path)).start()
+        update_indexing_status(conn, db_path, "started", 0, 0, time.time(), 0)  # 個別DBのステータスを更新
+    finally:
+        if conn:
+            conn.close()
+
+    return RedirectResponse(url=f"/settings?message=Index update for '{index_config['name']}' started in background!", status_code=303)
+
 @app.get("/stop_indexing_for_id/{index_id}")
 async def stop_indexing_for_id(index_id: int):
     index_config = get_index_config_by_id(index_id)

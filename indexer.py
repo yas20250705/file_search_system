@@ -214,3 +214,211 @@ def index_files(index_id: int, target_directory: str, allowed_extensions: list[s
     finally:
         if conn:
             conn.close()
+
+
+def extract_content(file_path: str) -> str:
+    """ファイルからテキストを抽出するヘルパー関数"""
+    ext = os.path.splitext(file_path)[1].lower()
+    content = ""
+    
+    if ext == '.pdf':
+        content = extract_text_from_pdf(file_path)
+    elif ext in ['.xlsx', '.xls']:
+        content = extract_text_from_excel(file_path)
+    elif ext == '.docx':
+        content = extract_text_from_word(file_path)
+    elif ext == '.pptx':
+        content = extract_text_from_powerpoint(file_path)
+    else:
+        content = extract_text_from_plain(file_path)
+    
+    return content
+
+
+def update_index_files(index_id: int, target_directory: str, allowed_extensions: list[str], db_path: str):
+    """
+    インデックスを差分更新します。
+    - 新規ファイル: INSERT
+    - 更新ファイル（タイムスタンプが異なる）: UPDATE
+    - 削除ファイル（ディスクにない）: DELETE
+    - 変更なし: スキップ
+    """
+    logger.info(f"インデックスID {index_id} ('{target_directory}') の差分更新を開始します...")
+    start_time = time.time()
+    
+    # メタデータベースのステータスを更新
+    update_index_status(index_id, 'running')
+    
+    conn = None
+    processed_count = 0
+    total_files = 0
+    
+    try:
+        conn = get_index_db_connection(db_path)
+        cursor = conn.cursor()
+        
+        # テーブルが存在するか確認
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='files'")
+        if not cursor.fetchone():
+            logger.warning(f"インデックスID {index_id} のfilesテーブルが存在しません。完全インデックスを実行してください。")
+            update_index_status(index_id, 'failed')
+            return
+        
+        # 1. DBから既存ファイル情報を取得
+        cursor.execute("SELECT path, modified_date FROM files")
+        existing_files = {row[0]: row[1] for row in cursor.fetchall()}
+        logger.info(f"インデックスID {index_id} の既存ファイル数: {len(existing_files)}")
+        
+        # 2. ディレクトリをスキャンして現在のファイルリストを取得
+        current_files = []
+        for root, _, files in os.walk(target_directory):
+            for file in files:
+                if any(file.endswith(ext) for ext in allowed_extensions):
+                    current_files.append(os.path.join(root, file))
+        
+        current_files_set = set(current_files)
+        existing_files_set = set(existing_files.keys())
+        
+        # 3. 差分を検出
+        new_files = current_files_set - existing_files_set
+        deleted_files = existing_files_set - current_files_set
+        potentially_updated_files = current_files_set & existing_files_set
+        
+        # 更新されたファイルを検出（タイムスタンプが異なるもの）
+        updated_files = []
+        for file_path in potentially_updated_files:
+            try:
+                current_mtime = os.path.getmtime(file_path)
+                stored_mtime = existing_files.get(file_path)
+                # タイムスタンプが異なる場合は更新対象
+                if stored_mtime is None or abs(current_mtime - stored_mtime) > 1:  # 1秒の誤差を許容
+                    updated_files.append(file_path)
+            except OSError:
+                pass  # ファイルにアクセスできない場合はスキップ
+        
+        total_files = len(new_files) + len(updated_files) + len(deleted_files)
+        logger.info(f"インデックスID {index_id} の差分: 新規={len(new_files)}, 更新={len(updated_files)}, 削除={len(deleted_files)}, 変更なし={len(potentially_updated_files) - len(updated_files)}")
+        
+        if total_files == 0:
+            logger.info(f"インデックスID {index_id} の更新対象ファイルがありません。")
+            update_indexing_status(conn, db_path, "completed", 0, 0, start_time, time.time())
+            update_index_status(index_id, 'completed', datetime.now())
+            return
+        
+        update_indexing_status(conn, db_path, "started", total_files, 0, start_time, 0)
+        
+        # 4. 削除ファイルを処理
+        for file_path in deleted_files:
+            if is_indexing_stop_requested(conn, db_path):
+                logger.info(f"インデックスID {index_id} の更新がユーザーによって中止されました。")
+                update_indexing_status(conn, db_path, "stopped", total_files, processed_count, start_time, time.time())
+                update_index_status(index_id, 'stopped')
+                return
+            
+            try:
+                cursor.execute("DELETE FROM files WHERE path = ?", (file_path,))
+                cursor.execute("DELETE FROM files_fts WHERE path = ?", (file_path,))
+                logger.debug(f"削除: {file_path}")
+            except sqlite3.Error as e:
+                logger.error(f"削除エラー ({file_path}): {e}")
+            
+            processed_count += 1
+            update_indexing_status(conn, db_path, "running", total_files, processed_count, start_time, 0)
+        
+        # 5. 新規ファイルを処理
+        for file_path in new_files:
+            if is_indexing_stop_requested(conn, db_path):
+                logger.info(f"インデックスID {index_id} の更新がユーザーによって中止されました。")
+                update_indexing_status(conn, db_path, "stopped", total_files, processed_count, start_time, time.time())
+                update_index_status(index_id, 'stopped')
+                return
+            
+            try:
+                ext = os.path.splitext(file_path)[1].lower()
+                content = extract_content(file_path)
+                
+                modified_timestamp = os.path.getmtime(file_path)
+                created_timestamp = os.path.getctime(file_path)
+                
+                content_to_save = content if content else ""
+                
+                cursor.execute(
+                    "INSERT INTO files (path, content, file_type, modified_date, created_date) VALUES (?, ?, ?, ?, ?)",
+                    (file_path, content_to_save, ext, modified_timestamp, created_timestamp)
+                )
+                
+                if content:
+                    cursor.execute("INSERT INTO files_fts (path, content) VALUES (?, ?)", (file_path, content))
+                
+                logger.debug(f"新規追加: {file_path}")
+            except sqlite3.Error as e:
+                logger.error(f"新規追加エラー ({file_path}): {e}")
+            except OSError as e:
+                logger.warning(f"ファイル情報取得エラー ({file_path}): {e}")
+            
+            processed_count += 1
+            update_indexing_status(conn, db_path, "running", total_files, processed_count, start_time, 0)
+            
+            if processed_count % 10 == 0:
+                conn.commit()
+                logger.info(f"インデックスID {index_id} の進捗: {processed_count}/{total_files}")
+        
+        # 6. 更新ファイルを処理
+        for file_path in updated_files:
+            if is_indexing_stop_requested(conn, db_path):
+                logger.info(f"インデックスID {index_id} の更新がユーザーによって中止されました。")
+                update_indexing_status(conn, db_path, "stopped", total_files, processed_count, start_time, time.time())
+                update_index_status(index_id, 'stopped')
+                return
+            
+            try:
+                ext = os.path.splitext(file_path)[1].lower()
+                content = extract_content(file_path)
+                
+                modified_timestamp = os.path.getmtime(file_path)
+                created_timestamp = os.path.getctime(file_path)
+                
+                content_to_save = content if content else ""
+                
+                # filesテーブルを更新
+                cursor.execute(
+                    "UPDATE files SET content = ?, file_type = ?, modified_date = ?, created_date = ? WHERE path = ?",
+                    (content_to_save, ext, modified_timestamp, created_timestamp, file_path)
+                )
+                
+                # files_ftsテーブルを更新（一度削除して再挿入）
+                cursor.execute("DELETE FROM files_fts WHERE path = ?", (file_path,))
+                if content:
+                    cursor.execute("INSERT INTO files_fts (path, content) VALUES (?, ?)", (file_path, content))
+                
+                logger.debug(f"更新: {file_path}")
+            except sqlite3.Error as e:
+                logger.error(f"更新エラー ({file_path}): {e}")
+            except OSError as e:
+                logger.warning(f"ファイル情報取得エラー ({file_path}): {e}")
+            
+            processed_count += 1
+            update_indexing_status(conn, db_path, "running", total_files, processed_count, start_time, 0)
+            
+            if processed_count % 10 == 0:
+                conn.commit()
+                logger.info(f"インデックスID {index_id} の進捗: {processed_count}/{total_files}")
+        
+        conn.commit()
+        
+        if not is_indexing_stop_requested(conn, db_path):
+            logger.info(f"インデックスID {index_id} の差分更新が完了しました。")
+            update_indexing_status(conn, db_path, "completed", total_files, total_files, start_time, time.time())
+            update_index_status(index_id, 'completed', datetime.now())
+        else:
+            logger.info(f"インデックスID {index_id} の差分更新は中止されました。")
+            update_indexing_status(conn, db_path, "stopped", total_files, processed_count, start_time, time.time())
+            update_index_status(index_id, 'stopped')
+    
+    except Exception as e:
+        logger.error(f"インデックスID {index_id} の差分更新中に予期せぬエラーが発生しました: {e}", exc_info=True)
+        update_indexing_status(conn, db_path, "failed", total_files, processed_count, start_time, time.time())
+        update_index_status(index_id, 'failed')
+    finally:
+        if conn:
+            conn.close()

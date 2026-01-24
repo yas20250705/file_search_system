@@ -80,8 +80,17 @@
                                             href="/trigger_index_for_id/{{ index.id }}" 
                                             class="inline-block px-3 py-1 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 index-start-btn"
                                             data-index-id="{{ index.id }}"
+                                            title="すべてのファイルを再インデックス"
                                         >
                                             インデックス作成
+                                        </a>
+                                        <a 
+                                            href="/update_index_for_id/{{ index.id }}" 
+                                            class="inline-block px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 index-update-btn"
+                                            data-index-id="{{ index.id }}"
+                                            title="新規・更新・削除ファイルのみ処理"
+                                        >
+                                            更新
                                         </a>
                                         <button 
                                             type="button" 
@@ -154,7 +163,7 @@
             });
         });
 
-        // インデックス作成と中止ボタンのイベントリスナー
+        // インデックス作成ボタンのイベントリスナー
         document.querySelectorAll('.index-start-btn').forEach(button => {
             button.addEventListener('click', async (event) => {
                 event.preventDefault();
@@ -182,6 +191,42 @@
                 } catch (error) {
                     console.error(`Error triggering index for ID ${indexId}:`, error);
                     alert(`インデックス作成の開始に失敗しました: ${error.message}`);
+                    // エラー時はステータス表示を非表示に戻す
+                    if (statusDiv) {
+                        statusDiv.style.display = 'none';
+                    }
+                }
+            });
+        });
+
+        // インデックス更新ボタンのイベントリスナー
+        document.querySelectorAll('.index-update-btn').forEach(button => {
+            button.addEventListener('click', async (event) => {
+                event.preventDefault();
+                const indexId = event.target.dataset.indexId;
+
+                // UIを即座に更新して差分更新中表示に切り替える
+                const statusDiv = document.getElementById(`indexingStatus_${indexId}`);
+                if (statusDiv) {
+                    statusDiv.style.display = 'block';
+                    document.getElementById(`statusText_${indexId}`).textContent = '差分確認中...';
+                    document.getElementById(`progressBar_${indexId}`).style.width = '0%';
+                    document.getElementById(`progressText_${indexId}`).textContent = '変更ファイルを検出中...';
+                    document.getElementById(`remainingTimeText_${indexId}`).textContent = '';
+                }
+
+                try {
+                    // fetch APIを使用してバックエンドを呼び出す
+                    const response = await fetch(`/update_index_for_id/${indexId}`);
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'インデックス更新のトリガーに失敗しました。');
+                    }
+                    // ポーリングを開始
+                    startPolling(indexId);
+                } catch (error) {
+                    console.error(`Error triggering index update for ID ${indexId}:`, error);
+                    alert(`インデックス更新の開始に失敗しました: ${error.message}`);
                     // エラー時はステータス表示を非表示に戻す
                     if (statusDiv) {
                         statusDiv.style.display = 'none';
