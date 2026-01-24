@@ -79,13 +79,18 @@ def create_index_tables(db_path: str):
 
             # files テーブルが存在するか確認し、なければ作成
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='files'")
-            if cursor.fetchone() is None:
+            table_exists = cursor.fetchone() is not None
+            
+            if not table_exists:
                 logger.info(f"インデックスデータベース '{db_path}' にテーブルを作成します...")
                 conn.execute("""
                     CREATE TABLE files (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         path TEXT NOT NULL UNIQUE,
-                        content TEXT
+                        content TEXT,
+                        file_type TEXT,
+                        modified_date REAL,
+                        created_date REAL
                     )
                 """)
                 conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
@@ -100,14 +105,13 @@ def create_index_tables(db_path: str):
                         estimated_end_time REAL
                     );
                 """)
+                # FTS5テーブルをtrigramトークナイザーで作成（content-syncを使用しない）
+                # content-syncとtrigramの組み合わせは問題を引き起こすため、独立したテーブルを使用
                 conn.execute("""
                     CREATE VIRTUAL TABLE files_fts USING fts5(
                         path, 
-                        content, 
-                        content='files', 
-                        content_rowid='id',
-                        tokenize = 'trigram',
-                        detail=full
+                        content,
+                        tokenize = 'trigram'
                     );
                 """)
                 logger.info(f"インデックスデータベース '{db_path}' にFTS5テーブルが正常に作成されました。")
@@ -118,6 +122,39 @@ def create_index_tables(db_path: str):
                 conn.commit()
                 logger.info(f"インデックスデータベース '{db_path}' のテーブルセットアップが正常に完了しました。")
             else:
+                # 既存テーブルにカラムを追加（存在しない場合のみ）
+                cursor.execute("PRAGMA table_info(files)")
+                columns = [row[1] for row in cursor.fetchall()]
+                
+                if 'file_type' not in columns:
+                    logger.info(f"インデックスデータベース '{db_path}' のfilesテーブルにfile_typeカラムを追加します...")
+                    conn.execute("ALTER TABLE files ADD COLUMN file_type TEXT")
+                
+                if 'modified_date' not in columns:
+                    logger.info(f"インデックスデータベース '{db_path}' のfilesテーブルにmodified_dateカラムを追加します...")
+                    conn.execute("ALTER TABLE files ADD COLUMN modified_date REAL")
+                
+                if 'created_date' not in columns:
+                    logger.info(f"インデックスデータベース '{db_path}' のfilesテーブルにcreated_dateカラムを追加します...")
+                    conn.execute("ALTER TABLE files ADD COLUMN created_date REAL")
+                
+                # FTS5テーブルが存在しない場合は作成
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='files_fts'")
+                fts_exists = cursor.fetchone() is not None
+                
+                if not fts_exists:
+                    logger.warning(f"インデックスデータベース '{db_path}' のFTS5テーブルが存在しません。作成します。")
+                    # FTS5テーブルをtrigramトークナイザーで作成（content-syncを使用しない）
+                    conn.execute("""
+                        CREATE VIRTUAL TABLE files_fts USING fts5(
+                            path, 
+                            content,
+                            tokenize = 'trigram'
+                        );
+                    """)
+                    logger.info(f"インデックスデータベース '{db_path}' のFTS5テーブルを作成しました。")
+                
+                conn.commit()
                 logger.info(f"インデックスデータベース '{db_path}' のテーブルは既に存在します。")
 
         except sqlite3.Error as e:

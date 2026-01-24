@@ -2,13 +2,14 @@ from fastapi import FastAPI, Request, Query, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from typing import Optional
 import sqlite3
 import re
 import os
 import threading
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- ロギング設定 ---
 logging.basicConfig(
@@ -243,6 +244,47 @@ def parse_search_query(query: str) -> str:
     logger.debug(f"Parsed query '{query}' -> FTS5 query '{fts_query}'")
     return fts_query
 
+# --- 日付フィルター処理 ---
+def get_date_range(filter_type: str):
+    """
+    日付フィルターから日付範囲を取得します。
+    
+    Args:
+        filter_type: フィルタータイプ（today, this_week, this_month, this_year, year:YYYY）
+    
+    Returns:
+        tuple: (start_timestamp, end_timestamp) または (None, None)
+    """
+    if not filter_type:
+        return None, None
+    
+    now = datetime.now()
+    
+    if filter_type == "today":
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return start.timestamp(), now.timestamp()
+    elif filter_type == "this_week":
+        start = now - timedelta(days=now.weekday())
+        start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+        return start.timestamp(), now.timestamp()
+    elif filter_type == "this_month":
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return start.timestamp(), now.timestamp()
+    elif filter_type == "this_year":
+        start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        return start.timestamp(), now.timestamp()
+    elif filter_type.startswith("year:"):
+        try:
+            year = int(filter_type.split(":")[1])
+            start = datetime(year, 1, 1)
+            end = datetime(year, 12, 31, 23, 59, 59)
+            return start.timestamp(), end.timestamp()
+        except (ValueError, IndexError):
+            logger.warning(f"無効な年指定: {filter_type}")
+            return None, None
+    
+    return None, None
+
 # --- ルート定義 ---
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -361,18 +403,76 @@ async def get_indexing_status_for_id(index_id: int):
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     indexes = get_all_index_configs()
-    return templates.TemplateResponse("index.html", {"request": request, "results": [], "indexes": indexes, "selected_index_id": None})
+    return templates.TemplateResponse("index.html", {
+        "request": request, 
+        "results": [], 
+        "indexes": indexes, 
+        "selected_index_id": None,
+        "show_advanced": None,
+        "common_extensions": COMMON_EXTENSIONS
+    })
 
 @app.get("/search", response_class=HTMLResponse)
-async def search_files(request: Request, q: str = Query(None), index_id: int = Query(None)):
+async def search_files(
+    request: Request, 
+    q: str = Query(None), 
+    index_id: Optional[str] = Query(None),
+    file_type: str = Query(None),
+    modified_date_filter: str = Query(None),
+    created_date_filter: str = Query(None),
+    modified_date_filter_year: str = Query(None),
+    created_date_filter_year: str = Query(None),
+    modified_date_filter_select: str = Query(None),
+    created_date_filter_select: str = Query(None),
+    show_advanced: str = Query(None)
+):
     results = []
     indexes = get_all_index_configs()
     selected_index_config = None
     
+    # index_idが空文字列の場合はNoneに変換
+    if index_id == "":
+        index_id = None
+    elif index_id:
+        try:
+            index_id = int(index_id)
+        except (ValueError, TypeError):
+            index_id = None
+    
+    # セレクトボックスからの値を処理
+    if modified_date_filter_select and modified_date_filter_select != 'year:custom':
+        modified_date_filter = modified_date_filter_select
+    if created_date_filter_select and created_date_filter_select != 'year:custom':
+        created_date_filter = created_date_filter_select
+    
+    # 年指定の処理
+    if modified_date_filter_year:
+        modified_date_filter = f"year:{modified_date_filter_year}"
+    if created_date_filter_year:
+        created_date_filter = f"year:{created_date_filter_year}"
+    
+    # フィルターが設定されている場合は自動的に詳細検索を表示
+    if show_advanced is None and (file_type or modified_date_filter or created_date_filter):
+        show_advanced = "1"
+    
+    logger.debug(f"Search filters - modified: {modified_date_filter}, created: {created_date_filter}, show_advanced: {show_advanced}")
+    
     if index_id:
         selected_index_config = get_index_config_by_id(index_id)
         if not selected_index_config:
-            return templates.TemplateResponse("index.html", {"request": request, "results": [], "indexes": indexes, "selected_index_id": None, "query": q, "message": "Error: Selected index not found!"})
+            return templates.TemplateResponse("index.html", {
+                "request": request, 
+                "results": [], 
+                "indexes": indexes, 
+                "selected_index_id": None, 
+                "query": q,
+                "file_type": file_type,
+                "modified_date_filter": modified_date_filter,
+                "created_date_filter": created_date_filter,
+                "show_advanced": show_advanced,
+                "common_extensions": COMMON_EXTENSIONS,
+                "message": "Error: Selected index not found!"
+            })
 
     if q and selected_index_config:
         db_path = selected_index_config['db_path']
@@ -387,7 +487,12 @@ async def search_files(request: Request, q: str = Query(None), index_id: int = Q
                     "indexes": indexes,
                     "selected_index_id": index_id,
                     "query": q,
-                    "message": "検索クエリが空です。有効なキーワードを入力してください。"
+                "file_type": file_type,
+                "modified_date_filter": modified_date_filter,
+                "created_date_filter": created_date_filter,
+                "show_advanced": show_advanced,
+                "common_extensions": COMMON_EXTENSIONS,
+                "message": "検索クエリが空です。有効なキーワードを入力してください。"
                 })
             
             logger.debug(f"Original query: '{q}'")
@@ -401,8 +506,39 @@ async def search_files(request: Request, q: str = Query(None), index_id: int = Q
                     "indexes": indexes,
                     "selected_index_id": index_id,
                     "query": q,
-                    "message": "検索クエリが空です。有効なキーワードを入力してください。"
+                "file_type": file_type,
+                "modified_date_filter": modified_date_filter,
+                "created_date_filter": created_date_filter,
+                "show_advanced": show_advanced,
+                "common_extensions": COMMON_EXTENSIONS,
+                "message": "検索クエリが空です。有効なキーワードを入力してください。"
                 })
+            
+            # フィルター条件を構築
+            filter_conditions = []
+            filter_params = []
+            
+            # ファイル種別フィルター
+            if file_type:
+                filter_conditions.append("files.file_type = ?")
+                filter_params.append(file_type.lower())
+                logger.debug(f"File type filter: {file_type}")
+            
+            # 変更日時フィルター
+            if modified_date_filter:
+                start_ts, end_ts = get_date_range(modified_date_filter)
+                if start_ts is not None and end_ts is not None:
+                    filter_conditions.append("files.modified_date IS NOT NULL AND files.modified_date >= ? AND files.modified_date <= ?")
+                    filter_params.extend([start_ts, end_ts])
+                    logger.debug(f"Modified date filter: {modified_date_filter} -> {start_ts} to {end_ts}")
+            
+            # 作成日時フィルター
+            if created_date_filter:
+                start_ts, end_ts = get_date_range(created_date_filter)
+                if start_ts is not None and end_ts is not None:
+                    filter_conditions.append("files.created_date IS NOT NULL AND files.created_date >= ? AND files.created_date <= ?")
+                    filter_params.extend([start_ts, end_ts])
+                    logger.debug(f"Created date filter: {created_date_filter} -> {start_ts} to {end_ts}")
             
             # 検索語が2文字以下かどうかを判定（trigramは3文字以上が必要）
             # 空白や演算子を除いた実際の検索語の長さをチェック
@@ -416,24 +552,53 @@ async def search_files(request: Request, q: str = Query(None), index_id: int = Q
                 like_params = []
                 for term in search_terms:
                     clean_term = term.strip('"')
-                    like_conditions.append("content LIKE ?")
+                    like_conditions.append("files.content LIKE ?")
                     like_params.append(f"%{clean_term}%")
                 
-                where_clause = " AND ".join(like_conditions)
+                # すべての条件を結合
+                all_conditions = like_conditions + filter_conditions
+                where_clause = " AND ".join(all_conditions) if all_conditions else "1=1"
+                all_params = like_params + filter_params
+                
+                logger.debug(f"LIKE search WHERE clause: {where_clause}")
+                logger.debug(f"LIKE search params: {all_params}")
+                
                 cursor = conn.execute(f"""
-                    SELECT path, substr(content, 1, 200) as snippet
+                    SELECT files.path, substr(files.content, 1, 200) as snippet
                     FROM files
                     WHERE {where_clause}
-                """, like_params)
+                """, all_params)
             else:
                 # 3文字以上の場合はtrigram FTS5検索を使用
                 logger.debug(f"Using FTS5 trigram search for query: '{fts_query}'")
-                cursor = conn.execute("""
-                    SELECT path, snippet(files_fts, 1, '<b>', '</b>', '...', 100)
+                
+                # FTS5検索とfilesテーブルをJOINしてフィルターを適用
+                # content-syncを使用しない独立したテーブルなので、pathでJOINする
+                fts_join = ""
+                fts_where = "files_fts MATCH ?"
+                fts_params = [fts_query]
+                
+                # フィルター条件がある場合はJOINが必要
+                if filter_conditions:
+                    fts_join = "INNER JOIN files ON files_fts.path = files.path"
+                    fts_where += " AND " + " AND ".join(filter_conditions)
+                    fts_params.extend(filter_params)
+                    # JOINしている場合はfiles.pathを使用
+                    path_column = "files.path"
+                    logger.debug(f"FTS5 search with filters - WHERE: {fts_where}, JOIN: {fts_join}")
+                    logger.debug(f"FTS5 search params: {fts_params}")
+                else:
+                    # フィルター条件がない場合はfiles_fts.pathを使用
+                    path_column = "files_fts.path"
+                    logger.debug(f"FTS5 search without filters - WHERE: {fts_where}")
+                
+                cursor = conn.execute(f"""
+                    SELECT {path_column}, snippet(files_fts, 1, '<b>', '</b>', '...', 100) as snippet
                     FROM files_fts
-                    WHERE files_fts MATCH ?
+                    {fts_join}
+                    WHERE {fts_where}
                     ORDER BY rank
-                """, (fts_query,))
+                """, fts_params)
             
             fetched_rows = cursor.fetchall()
             for row in fetched_rows:
@@ -453,7 +618,12 @@ async def search_files(request: Request, q: str = Query(None), index_id: int = Q
                     "indexes": indexes,
                     "selected_index_id": index_id,
                     "query": q,
-                    "message": "エラー: インデックスデータベースが初期化されていないか、破損しています。再インデックスを作成してください。"
+                "file_type": file_type,
+                "modified_date_filter": modified_date_filter,
+                "created_date_filter": created_date_filter,
+                "show_advanced": show_advanced,
+                "common_extensions": COMMON_EXTENSIONS,
+                "message": "エラー: インデックスデータベースが初期化されていないか、破損しています。再インデックスを作成してください。"
                 })
             # 構文エラーの場合
             elif "malformed" in error_msg.lower() or "syntax" in error_msg.lower():
@@ -463,7 +633,12 @@ async def search_files(request: Request, q: str = Query(None), index_id: int = Q
                     "indexes": indexes,
                     "selected_index_id": index_id,
                     "query": q,
-                    "message": f"検索クエリの構文エラー: クエリを確認してください。例: 'python tutorial', 'python OR tutorial', 'python -tutorial'"
+                "file_type": file_type,
+                "modified_date_filter": modified_date_filter,
+                "created_date_filter": created_date_filter,
+                "show_advanced": show_advanced,
+                "common_extensions": COMMON_EXTENSIONS,
+                "message": f"検索クエリの構文エラー: クエリを確認してください。例: 'python tutorial', 'python OR tutorial', 'python -tutorial'"
                 })
             else:
                 return templates.TemplateResponse("index.html", {
@@ -472,7 +647,12 @@ async def search_files(request: Request, q: str = Query(None), index_id: int = Q
                     "indexes": indexes,
                     "selected_index_id": index_id,
                     "query": q,
-                    "message": f"検索中にエラーが発生しました: {error_msg}"
+                "file_type": file_type,
+                "modified_date_filter": modified_date_filter,
+                "created_date_filter": created_date_filter,
+                "show_advanced": show_advanced,
+                "common_extensions": COMMON_EXTENSIONS,
+                "message": f"検索中にエラーが発生しました: {error_msg}"
                 })
         except Exception as e:
             logger.error(f"Unexpected error during search on {db_path}: {e}", exc_info=True)
@@ -482,14 +662,41 @@ async def search_files(request: Request, q: str = Query(None), index_id: int = Q
                 "indexes": indexes,
                 "selected_index_id": index_id,
                 "query": q,
+                "file_type": file_type,
+                "modified_date_filter": modified_date_filter,
+                "created_date_filter": created_date_filter,
+                "show_advanced": show_advanced,
+                "common_extensions": COMMON_EXTENSIONS,
                 "message": f"予期しないエラーが発生しました: {str(e)}"
             })
         finally:
             conn.close()
     elif q and not selected_index_config:
-        return templates.TemplateResponse("index.html", {"request": request, "results": [], "indexes": indexes, "selected_index_id": None, "query": q, "message": "Please select an index to search."})
+        return templates.TemplateResponse("index.html", {
+            "request": request, 
+            "results": [], 
+            "indexes": indexes, 
+            "selected_index_id": None, 
+            "query": q,
+            "file_type": file_type,
+            "modified_date_filter": modified_date_filter,
+            "created_date_filter": created_date_filter,
+            "show_advanced": show_advanced,
+            "message": "Please select an index to search."
+        })
 
-    return templates.TemplateResponse("index.html", {"request": request, "results": results, "query": q, "indexes": indexes, "selected_index_id": index_id})
+    return templates.TemplateResponse("index.html", {
+        "request": request, 
+        "results": results, 
+        "query": q, 
+        "indexes": indexes, 
+        "selected_index_id": index_id,
+        "file_type": file_type,
+        "modified_date_filter": modified_date_filter,
+        "created_date_filter": created_date_filter,
+        "show_advanced": show_advanced,
+        "common_extensions": COMMON_EXTENSIONS
+    })
 
 @app.get("/open")
 async def open_file(path: str):

@@ -84,13 +84,37 @@ def index_files(index_id: int, target_directory: str, allowed_extensions: list[s
         conn = get_index_db_connection(db_path)
         cursor = conn.cursor()
 
-        cursor = conn.cursor()
-
-        # 既存のデータをクリア
-        cursor.execute("DELETE FROM files")
-        cursor.execute("DELETE FROM files_fts")
+        # インデックス作成時は常にテーブルを完全に削除して再作成
+        # これにより、FTS5のcontent-syncテーブルの同期問題やトークナイザーの問題を回避
+        logger.info(f"インデックスID {index_id} のテーブルを再作成します...")
+        
+        # テーブルを完全に削除
+        cursor.execute("DROP TABLE IF EXISTS files_fts")
+        cursor.execute("DROP TABLE IF EXISTS files")
         conn.commit()
-        logger.info(f"インデックスID {index_id} の既存データをクリアしました。")
+        
+        # filesテーブルを再作成
+        cursor.execute("""
+            CREATE TABLE files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE,
+                content TEXT,
+                file_type TEXT,
+                modified_date REAL,
+                created_date REAL
+            )
+        """)
+        # FTS5テーブルをtrigramトークナイザーで作成（content-syncを使用しない）
+        # content-syncとtrigramの組み合わせは問題を引き起こすため、独立したテーブルを使用
+        cursor.execute("""
+            CREATE VIRTUAL TABLE files_fts USING fts5(
+                path, 
+                content,
+                tokenize = 'trigram'
+            )
+        """)
+        conn.commit()
+        logger.info(f"インデックスID {index_id} のテーブルをtrigramトークナイザーで再作成しました。")
 
         files_to_index = []
         for root, _, files in os.walk(target_directory):
@@ -135,18 +159,33 @@ def index_files(index_id: int, target_directory: str, allowed_extensions: list[s
                 content = extract_text_from_plain(file_path)
             logger.debug(f"Indexer: Finished extracting text from {file_path}")
 
-            if content:
-                try:
-                        # 1. `files`テーブルに挿入
-                        cursor.execute("INSERT OR REPLACE INTO files (path, content) VALUES (?, ?)", (file_path, content))
-                        last_row_id = cursor.lastrowid
+            # ファイル情報を取得
+            file_type = ext
+            # 指定したフォルダ内のファイルの日時を使用（ファイルシステムの日時）
+            try:
+                modified_timestamp = os.path.getmtime(file_path)
+                created_timestamp = os.path.getctime(file_path)
+            except OSError as e:
+                logger.warning(f"ファイル情報の取得に失敗しました ({file_path}): {e}")
+                modified_timestamp = None
+                created_timestamp = None
+
+            # contentが空でもファイル情報は保存する
+            try:
+                # 1. `files`テーブルに挿入（ファイル情報を含む）
+                # contentが空の場合は空文字列を保存
+                content_to_save = content if content else ""
+                
+                # 新規レコードを挿入（テーブルは毎回再作成されるので既存レコードはない）
+                cursor.execute("INSERT INTO files (path, content, file_type, modified_date, created_date) VALUES (?, ?, ?, ?, ?)", 
+                             (file_path, content_to_save, file_type, modified_timestamp, created_timestamp))
+                
+                # 2. `files_fts`テーブルに挿入（content-syncを使用しない独立したテーブル）
+                if content:
+                    cursor.execute("INSERT INTO files_fts (path, content) VALUES (?, ?)", (file_path, content))
                         
-                        # 2. `files_fts`テーブルに、`files`テーブルのrowidを使って挿入
-                        #    これにより、2つのテーブルが正しく同期される
-                        cursor.execute("INSERT INTO files_fts (rowid, path, content) VALUES (?, ?, ?)", (last_row_id, file_path, content))
-                        
-                except sqlite3.Error as e:
-                    logger.error(f"インデックスID {index_id} のデータベース挿入エラー ({file_path}): {e}")
+            except sqlite3.Error as e:
+                logger.error(f"インデックスID {index_id} のデータベース挿入エラー ({file_path}): {e}")
 
             # 進捗を更新
             current_processed_files = i + 1
