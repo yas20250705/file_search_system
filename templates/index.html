@@ -198,6 +198,10 @@
                                 <h3 class="text-lg font-medium text-blue-700 hover:underline">
                                     <a href="/open?path={{ result.path|urlencode }}" target="_blank">{{ result.path }}</a>
                                 </h3>
+                                <p class="text-gray-500 text-xs mt-1">
+                                    作成日時: {{ result.created_date or '-' }}　
+                                    変更日時: {{ result.modified_date or '-' }}
+                                </p>
                                 <p class="text-gray-600 mt-1 text-sm">
                                     {% for snippet in result.snippets %}
                                         ... {{ snippet.text | safe }} ...<br>
@@ -224,6 +228,12 @@
             if (select.value === 'year:custom') {
                 input.style.display = 'block';
                 input.required = true;
+                
+                // 初期値が未設定の場合は、選択日（今日）の年を設定
+                if (!input.value) {
+                    const today = new Date();
+                    input.value = today.getFullYear();
+                }
             } else {
                 input.style.display = 'none';
                 input.required = false;

@@ -564,7 +564,11 @@ async def search_files(
                 logger.debug(f"LIKE search params: {all_params}")
                 
                 cursor = conn.execute(f"""
-                    SELECT files.path, substr(files.content, 1, 200) as snippet
+                    SELECT 
+                        files.path,
+                        files.modified_date,
+                        files.created_date,
+                        substr(files.content, 1, 200) as snippet
                     FROM files
                     WHERE {where_clause}
                 """, all_params)
@@ -574,26 +578,25 @@ async def search_files(
                 
                 # FTS5検索とfilesテーブルをJOINしてフィルターを適用
                 # content-syncを使用しない独立したテーブルなので、pathでJOINする
-                fts_join = ""
+                fts_join = "INNER JOIN files ON files_fts.path = files.path"
                 fts_where = "files_fts MATCH ?"
                 fts_params = [fts_query]
                 
-                # フィルター条件がある場合はJOINが必要
+                # フィルター条件がある場合はWHERE句に追加
                 if filter_conditions:
-                    fts_join = "INNER JOIN files ON files_fts.path = files.path"
                     fts_where += " AND " + " AND ".join(filter_conditions)
                     fts_params.extend(filter_params)
-                    # JOINしている場合はfiles.pathを使用
-                    path_column = "files.path"
                     logger.debug(f"FTS5 search with filters - WHERE: {fts_where}, JOIN: {fts_join}")
                     logger.debug(f"FTS5 search params: {fts_params}")
                 else:
-                    # フィルター条件がない場合はfiles_fts.pathを使用
-                    path_column = "files_fts.path"
                     logger.debug(f"FTS5 search without filters - WHERE: {fts_where}")
                 
                 cursor = conn.execute(f"""
-                    SELECT {path_column}, snippet(files_fts, 1, '<b>', '</b>', '...', 100) as snippet
+                    SELECT 
+                        files.path,
+                        files.modified_date,
+                        files.created_date,
+                        snippet(files_fts, 1, '<b>', '</b>', '...', 100) as snippet
                     FROM files_fts
                     {fts_join}
                     WHERE {fts_where}
@@ -603,10 +606,28 @@ async def search_files(
             fetched_rows = cursor.fetchall()
             for row in fetched_rows:
                 # スニペットを200文字に制限
-                snippet_text = row[1] if row[1] else ""
+                snippet_text = row["snippet"] if row["snippet"] else ""
                 if len(snippet_text) > 200:
                     snippet_text = snippet_text[:200] + "..."
-                results.append({"path": row['path'], "snippets": [{"text": snippet_text}]})
+                
+                # タイムスタンプを人間が読める形式に変換
+                def format_timestamp(ts):
+                    if ts is None:
+                        return ""
+                    try:
+                        return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+                    except (OSError, OverflowError, ValueError):
+                        return ""
+
+                modified_str = format_timestamp(row["modified_date"])
+                created_str = format_timestamp(row["created_date"])
+
+                results.append({
+                    "path": row["path"],
+                    "modified_date": modified_str,
+                    "created_date": created_str,
+                    "snippets": [{"text": snippet_text}],
+                })
         except sqlite3.OperationalError as e:
             logger.error(f"Search query failed on {db_path}: {e}", exc_info=True)
             error_msg = str(e)
