@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, Query, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from typing import Optional
+from typing import Optional, List
 import sqlite3
 import re
 import os
@@ -417,7 +417,7 @@ async def search_files(
     request: Request, 
     q: str = Query(None), 
     index_id: Optional[str] = Query(None),
-    file_type: str = Query(None),
+    file_type: List[str] = Query(None),
     modified_date_filter: str = Query(None),
     created_date_filter: str = Query(None),
     modified_date_filter_year: str = Query(None),
@@ -451,11 +451,55 @@ async def search_files(
     if created_date_filter_year:
         created_date_filter = f"year:{created_date_filter_year}"
     
+    # file_typeをリスト形式に正規化（Noneの場合は空リスト、文字列の場合はリストに変換）
+    if file_type is None:
+        file_type_list = []
+    elif isinstance(file_type, str):
+        file_type_list = [file_type] if file_type else []
+    else:
+        file_type_list = [ft for ft in file_type if ft] if file_type else []
+    
     # フィルターが設定されている場合は自動的に詳細検索を表示
-    if show_advanced is None and (file_type or modified_date_filter or created_date_filter):
+    if show_advanced is None and (file_type_list or modified_date_filter or created_date_filter):
         show_advanced = "1"
     
-    logger.debug(f"Search filters - modified: {modified_date_filter}, created: {created_date_filter}, show_advanced: {show_advanced}")
+    logger.debug(f"Search filters - file_type: {file_type_list}, modified: {modified_date_filter}, created: {created_date_filter}, show_advanced: {show_advanced}")
+    
+    # 詳細検索パネルが開いている状態で、ファイル種別が選択されていない場合はエラー
+    if show_advanced and not file_type_list:
+        # 詳細検索パネルが開いているが、ファイル種別が選択されていない場合
+        if index_id:
+            selected_index_config = get_index_config_by_id(index_id)
+            if not selected_index_config:
+                return templates.TemplateResponse("index.html", {
+                    "request": request, 
+                    "results": [], 
+                    "indexes": indexes, 
+                    "selected_index_id": None, 
+                    "query": q,
+                    "file_type": file_type_list,
+                    "modified_date_filter": modified_date_filter,
+                    "created_date_filter": created_date_filter,
+                    "show_advanced": show_advanced,
+                    "common_extensions": COMMON_EXTENSIONS,
+                    "message": "Error: Selected index not found!"
+                })
+        else:
+            selected_index_config = None
+        
+        return templates.TemplateResponse("index.html", {
+            "request": request,
+            "results": [],
+            "indexes": indexes,
+            "selected_index_id": index_id,
+            "query": q,
+            "file_type": file_type_list,
+            "modified_date_filter": modified_date_filter,
+            "created_date_filter": created_date_filter,
+            "show_advanced": show_advanced,
+            "common_extensions": COMMON_EXTENSIONS,
+            "message": "ファイル種別を選択してください。"
+        })
     
     if index_id:
         selected_index_config = get_index_config_by_id(index_id)
@@ -466,13 +510,15 @@ async def search_files(
                 "indexes": indexes, 
                 "selected_index_id": None, 
                 "query": q,
-                "file_type": file_type,
+                "file_type": file_type_list,
                 "modified_date_filter": modified_date_filter,
                 "created_date_filter": created_date_filter,
                 "show_advanced": show_advanced,
                 "common_extensions": COMMON_EXTENSIONS,
                 "message": "Error: Selected index not found!"
             })
+    else:
+        selected_index_config = None
 
     if q and selected_index_config:
         db_path = selected_index_config['db_path']
@@ -487,7 +533,7 @@ async def search_files(
                     "indexes": indexes,
                     "selected_index_id": index_id,
                     "query": q,
-                "file_type": file_type,
+                "file_type": file_type_list,
                 "modified_date_filter": modified_date_filter,
                 "created_date_filter": created_date_filter,
                 "show_advanced": show_advanced,
@@ -506,7 +552,7 @@ async def search_files(
                     "indexes": indexes,
                     "selected_index_id": index_id,
                     "query": q,
-                "file_type": file_type,
+                "file_type": file_type_list,
                 "modified_date_filter": modified_date_filter,
                 "created_date_filter": created_date_filter,
                 "show_advanced": show_advanced,
@@ -518,11 +564,15 @@ async def search_files(
             filter_conditions = []
             filter_params = []
             
-            # ファイル種別フィルター
-            if file_type:
-                filter_conditions.append("files.file_type = ?")
-                filter_params.append(file_type.lower())
-                logger.debug(f"File type filter: {file_type}")
+            # ファイル種別フィルター（複数選択対応）
+            if file_type_list:
+                # 空文字列を除外
+                file_types = [ft.lower() for ft in file_type_list if ft and ft.strip()]
+                if file_types:
+                    placeholders = ','.join(['?' for _ in file_types])
+                    filter_conditions.append(f"files.file_type IN ({placeholders})")
+                    filter_params.extend(file_types)
+                    logger.debug(f"File type filter: {file_types}")
             
             # 変更日時フィルター
             if modified_date_filter:
@@ -639,7 +689,7 @@ async def search_files(
                     "indexes": indexes,
                     "selected_index_id": index_id,
                     "query": q,
-                "file_type": file_type,
+                "file_type": file_type_list,
                 "modified_date_filter": modified_date_filter,
                 "created_date_filter": created_date_filter,
                 "show_advanced": show_advanced,
@@ -654,7 +704,7 @@ async def search_files(
                     "indexes": indexes,
                     "selected_index_id": index_id,
                     "query": q,
-                "file_type": file_type,
+                "file_type": file_type_list,
                 "modified_date_filter": modified_date_filter,
                 "created_date_filter": created_date_filter,
                 "show_advanced": show_advanced,
@@ -668,7 +718,7 @@ async def search_files(
                     "indexes": indexes,
                     "selected_index_id": index_id,
                     "query": q,
-                "file_type": file_type,
+                "file_type": file_type_list,
                 "modified_date_filter": modified_date_filter,
                 "created_date_filter": created_date_filter,
                 "show_advanced": show_advanced,
@@ -683,7 +733,7 @@ async def search_files(
                 "indexes": indexes,
                 "selected_index_id": index_id,
                 "query": q,
-                "file_type": file_type,
+                "file_type": file_type_list,
                 "modified_date_filter": modified_date_filter,
                 "created_date_filter": created_date_filter,
                 "show_advanced": show_advanced,
@@ -699,7 +749,7 @@ async def search_files(
             "indexes": indexes, 
             "selected_index_id": None, 
             "query": q,
-            "file_type": file_type,
+            "file_type": file_type_list,
             "modified_date_filter": modified_date_filter,
             "created_date_filter": created_date_filter,
             "show_advanced": show_advanced,
@@ -712,7 +762,7 @@ async def search_files(
         "query": q, 
         "indexes": indexes, 
         "selected_index_id": index_id,
-        "file_type": file_type,
+        "file_type": file_type_list,
         "modified_date_filter": modified_date_filter,
         "created_date_filter": created_date_filter,
         "show_advanced": show_advanced,

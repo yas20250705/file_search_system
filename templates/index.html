@@ -77,18 +77,32 @@
                             <div class="mt-4 space-y-4">
                                 <!-- ファイル種別フィルター -->
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">ファイル種別</label>
-                                    <select 
-                                        name="file_type" 
-                                        class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    >
-                                        <option value="">すべて</option>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">ファイル種別（複数選択可）</label>
+                                    <div class="border border-gray-300 rounded-md p-3 max-h-48 overflow-y-auto bg-white">
+                                        <label class="flex items-center gap-2 mb-2 text-sm">
+                                            <input 
+                                                type="checkbox" 
+                                                class="file-type-select-all rounded"
+                                                onchange="toggleAllFileTypes(this)"
+                                            >
+                                            <span class="font-medium">すべて選択</span>
+                                        </label>
+                                        <hr class="my-2">
                                         {% if common_extensions %}
                                             {% for ext in common_extensions %}
-                                                <option value="{{ ext }}" {% if file_type == ext %}selected{% endif %}>{{ ext }}</option>
+                                                <label class="flex items-center gap-2 mb-1 text-sm">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        name="file_type" 
+                                                        value="{{ ext }}"
+                                                        class="file-type-checkbox rounded"
+                                                        {% if file_type and ext in file_type %}checked{% endif %}
+                                                    >
+                                                    <span>{{ ext }}</span>
+                                                </label>
                                             {% endfor %}
                                         {% endif %}
-                                    </select>
+                                    </div>
                                 </div>
                                 
                                 <!-- 変更日時フィルター -->
@@ -350,6 +364,38 @@
                 details.removeAttribute('open');
             }
         }
+        
+        // ファイル種別のすべて選択/解除
+        function toggleAllFileTypes(checkbox) {
+            const checkboxes = document.querySelectorAll('.file-type-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = checkbox.checked;
+            });
+        }
+        
+        // ページ読み込み時にファイル種別の「すべて選択」状態を更新
+        document.addEventListener('DOMContentLoaded', function() {
+            const allCheckbox = document.querySelector('.file-type-select-all');
+            const checkboxes = document.querySelectorAll('.file-type-checkbox');
+            
+            if (allCheckbox && checkboxes.length > 0) {
+                // 個別チェックボックスの変更を監視
+                checkboxes.forEach(cb => {
+                    cb.addEventListener('change', function() {
+                        const allChecked = Array.from(checkboxes).every(c => c.checked);
+                        const someChecked = Array.from(checkboxes).some(c => c.checked);
+                        allCheckbox.checked = allChecked;
+                        allCheckbox.indeterminate = someChecked && !allChecked;
+                    });
+                });
+                
+                // 初期状態を設定
+                const allChecked = Array.from(checkboxes).every(c => c.checked);
+                const someChecked = Array.from(checkboxes).some(c => c.checked);
+                allCheckbox.checked = allChecked;
+                allCheckbox.indeterminate = someChecked && !allChecked;
+            }
+        });
         
         // ページ読み込み時に年指定フィールドの表示状態を設定
         document.addEventListener('DOMContentLoaded', function() {
