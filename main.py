@@ -76,9 +76,10 @@ async def startup_event():
     logger.info("FastAPIアプリケーションの起動イベントが完了しました。")
 
 COMMON_EXTENSIONS = [
-    ".txt", ".md", ".py", ".html", ".css", ".js", ".json", ".xml", ".csv",
-    ".c", ".cpp", ".h", ".java", ".go", ".php", ".rb", ".ts", ".sh", ".bat",
-    ".pdf", ".xlsx", ".docx", ".pptx", ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg"
+    # テキスト系
+    ".txt", ".md", ".csv", ".json", ".xml",
+    # ドキュメント系
+    ".pdf", ".xlsx", ".docx", ".pptx"
 ]
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -403,13 +404,37 @@ async def search_files(request: Request, q: str = Query(None), index_id: int = Q
                     "message": "検索クエリが空です。有効なキーワードを入力してください。"
                 })
             
-            cursor = conn.execute("""
-                SELECT path, snippet(files_fts, 1, '<b>', '</b>', '...', 100)
-                FROM files_fts
-                WHERE files_fts MATCH ?
-                ORDER BY rank
-                LIMIT 50
-            """, (fts_query,))
+            # 検索語が2文字以下かどうかを判定（trigramは3文字以上が必要）
+            # 空白や演算子を除いた実際の検索語の長さをチェック
+            search_terms = [term for term in q.strip().split() if term.upper() not in ['OR', 'AND'] and not term.startswith('-')]
+            use_like_search = any(len(term.strip('"')) <= 2 for term in search_terms)
+            
+            if use_like_search:
+                # 2文字以下の検索語が含まれる場合はLIKE検索を使用
+                logger.debug(f"Using LIKE search for short query: '{q}'")
+                like_conditions = []
+                like_params = []
+                for term in search_terms:
+                    clean_term = term.strip('"')
+                    like_conditions.append("content LIKE ?")
+                    like_params.append(f"%{clean_term}%")
+                
+                where_clause = " AND ".join(like_conditions)
+                cursor = conn.execute(f"""
+                    SELECT path, substr(content, 1, 200) as snippet
+                    FROM files
+                    WHERE {where_clause}
+                """, like_params)
+            else:
+                # 3文字以上の場合はtrigram FTS5検索を使用
+                logger.debug(f"Using FTS5 trigram search for query: '{fts_query}'")
+                cursor = conn.execute("""
+                    SELECT path, snippet(files_fts, 1, '<b>', '</b>', '...', 100)
+                    FROM files_fts
+                    WHERE files_fts MATCH ?
+                    ORDER BY rank
+                """, (fts_query,))
+            
             fetched_rows = cursor.fetchall()
             for row in fetched_rows:
                 # スニペットを200文字に制限
