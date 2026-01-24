@@ -203,10 +203,9 @@ def parse_search_query(query: str) -> str:
         if token.upper().startswith('NOT '):
             not_word = token[4:].strip()
             if not_word:
-                # NOT検索では、ワイルドカード（*）を使用して部分一致を可能にする
-                # これにより、「穴埋め」で「穴埋め式」も除外できる
-                # FTS5では、語をそのまま使用し、*でプレフィックスマッチを行う
-                fts_parts.append(f'NOT {not_word}*')
+                # trigramトークナイザーでは部分一致が自動的にサポートされるため
+                # ワイルドカードは不要
+                fts_parts.append(f'NOT {not_word}')
             prev_was_operator = False
             i += 1
             continue
@@ -227,16 +226,10 @@ def parse_search_query(query: str) -> str:
         
         # 通常の語
         if token:
-            # 前のトークンがOR演算子の場合は、語をそのまま使用
-            # そうでない場合は、ワイルドカード付きで使用（部分一致を可能にする）
-            if prev_was_operator or (i > 0 and tokens[i-1].upper() == 'OR'):
-                # OR検索の場合は、語をそのまま使用
-                fts_parts.append(token)
-            else:
-                # AND検索の場合は、ワイルドカードを付けて部分一致を可能にする
-                # これにより、「穴埋め」で「穴埋め式」も検索できる
-                # 除外ワードと同様の形式で一貫性を保つ
-                fts_parts.append(f'{token}*')
+            # trigramトークナイザーでは部分一致が自動的にサポートされるため
+            # ワイルドカードは不要。語をそのまま使用する。
+            # これにより「日立」で「株式会社日立」「日立製作所」両方にマッチ
+            fts_parts.append(token)
             prev_was_operator = False
         i += 1
     

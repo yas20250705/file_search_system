@@ -106,7 +106,7 @@ def create_index_tables(db_path: str):
                         content, 
                         content='files', 
                         content_rowid='id',
-                        tokenize = 'porter unicode61',
+                        tokenize = 'trigram',
                         detail=full
                     );
                 """)
